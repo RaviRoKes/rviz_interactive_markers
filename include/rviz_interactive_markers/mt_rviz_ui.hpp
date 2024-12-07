@@ -4,10 +4,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <interactive_markers/interactive_marker_server.hpp>
-
+#include <QPushButton>
 #include <rviz_common/panel.hpp>
 #include <QLineEdit>
-#include <QPushButton>
 
 #include <map>
 #include <string>
@@ -27,11 +26,12 @@ namespace rviz_interactive_markers
 
   private Q_SLOTS:
     void broadcastTransform();
+    void createGrid();
+    void add5x10InteractiveMarkers();
 
   private:
     // Methods for marker creation and handling
-    void createGrid();
-    void createBoxMarker(int row, int col);
+    void createBoxMarker(int row, int col, double marker_size);
     void toggleCylinderVisibility(const std::string &marker_name);
     void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback);
 
@@ -55,6 +55,10 @@ namespace rviz_interactive_markers
     QLineEdit *pitch_input_;
     QLineEdit *yaw_input_;
     QPushButton *broadcast_button_;
+
+    // New buttons for grid creation
+    QPushButton *create_grid_button_;   // Button to create a grid of markers
+    QPushButton *add_5x10_grid_button_; // Button to add 5x10 interactive markers
 
     // Marker grid configuration
     double marker_spacing_;
