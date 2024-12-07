@@ -1,0 +1,11 @@
+
+<?xml version="1.0"?>
+<library path="mt_rviz_ui">
+  <class name="MTRVizUI"
+         type="rviz_interactive_markers::MTRVizUI"
+         base_class_type="rviz_common::Panel">
+    <description>
+      RViz panel for creating and managing frames for automated machine-tending systems, with interactive markers for cylinders and boxes.
+    </description>
+  </class>
+</library>
