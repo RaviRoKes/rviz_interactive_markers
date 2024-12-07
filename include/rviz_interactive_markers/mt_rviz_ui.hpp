@@ -14,60 +14,60 @@
 namespace rviz_interactive_markers
 {
 
+  // Custom RViz Panel for managing interactive markers and broadcasting transforms
   class MTRVizUI : public rviz_common::Panel
   {
     Q_OBJECT
 
   public:
-    explicit MTRVizUI(QWidget *parent = nullptr);
-    ~MTRVizUI() override;
+    explicit MTRVizUI(QWidget *parent = nullptr); // Constructor
+    ~MTRVizUI() override;                        // Destructor
 
-    void onInitialize() override;
+    void onInitialize() override; // Initialize panel with default setup
 
   private Q_SLOTS:
-    void broadcastTransform();
-    void createGrid();
-    void add5x10InteractiveMarkers();
+    // Slots for button actions
+    void broadcastTransform();           // Broadcast a transform using input values
+    void createGrid();                   // Create a grid of interactive markers
+    void add5x10InteractiveMarkers();    // Create a custom 5x10 grid of small markers
 
   private:
-    // Methods for marker creation and handling
-    void createBoxMarker(int row, int col, double marker_size);
-    void toggleCylinderVisibility(const std::string &marker_name);
-    void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback);
+    // Methods for marker management
+    void createBoxMarker(int row, int col, double marker_size); // Add a box marker to the grid
+    void toggleCylinderVisibility(const std::string &marker_name); // Toggle cylinder visibility on click
+    void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback); // Handle marker feedback
 
-    // ROS Node
-    rclcpp::Node::SharedPtr node_;
-
-    // ROS TF Broadcaster and Marker Server
-    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
-    std::shared_ptr<interactive_markers::InteractiveMarkerServer> marker_server_;
+    // ROS Node and resources
+    rclcpp::Node::SharedPtr node_;                                      // ROS Node for communication
+    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;    // Broadcast transforms
+    std::shared_ptr<interactive_markers::InteractiveMarkerServer> marker_server_; // Manage interactive markers
 
     // Cylinder visibility map
-    std::map<std::string, bool> cylinder_visibility_;
+    std::map<std::string, bool> cylinder_visibility_; // Tracks marker visibility
 
-    // UI Elements
-    QLineEdit *child_frame_input_;
-    QLineEdit *parent_frame_input_;
-    QLineEdit *x_input_;
-    QLineEdit *y_input_;
-    QLineEdit *z_input_;
-    QLineEdit *roll_input_;
-    QLineEdit *pitch_input_;
-    QLineEdit *yaw_input_;
-    QPushButton *broadcast_button_;
+    // UI Elements for user inputs
+    QLineEdit *child_frame_input_; // Input field for child frame
+    QLineEdit *parent_frame_input_; // Input field for parent frame
+    QLineEdit *x_input_;            // Input field for X translation
+    QLineEdit *y_input_;            // Input field for Y translation
+    QLineEdit *z_input_;            // Input field for Z translation
+    QLineEdit *roll_input_;         // Input field for roll (optional, unused)
+    QLineEdit *pitch_input_;        // Input field for pitch (optional, unused)
+    QLineEdit *yaw_input_;          // Input field for yaw (optional, unused)
+    QPushButton *broadcast_button_; // Button to broadcast transforms
 
-    // New buttons for grid creation
-    QPushButton *create_grid_button_;   // Button to create a grid of markers
-    QPushButton *add_5x10_grid_button_; // Button to add 5x10 interactive markers
+    // Buttons for marker grid creation
+    QPushButton *create_grid_button_;   // Button to create a marker grid
+    QPushButton *add_5x10_grid_button_; // Button to create a 5x10 grid
 
     // Marker grid configuration
-    double marker_spacing_;
-    int grid_rows_;
-    int grid_cols_;
+    double marker_spacing_; // Spacing between markers
+    int grid_rows_;         // Number of rows in the grid
+    int grid_cols_;         // Number of columns in the grid
 
-    // Cylinder parameters
-    double cylinder_radius_;
-    double cylinder_height_;
+    // Cylinder marker parameters
+    double cylinder_radius_;  // Radius of the cylinder marker
+    double cylinder_height_;  // Height of the cylinder marker
   };
 
 } // namespace rviz_interactive_markers

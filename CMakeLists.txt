@@ -18,8 +18,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "(GNU|Clang)")
     -Werror=missing-braces)
 endif()
 
-# # Set the Qt5 path if needed
-# set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/Qt5" ${CMAKE_PREFIX_PATH})
 
 # Find dependencies
 find_package(ament_cmake REQUIRED)

@@ -8,7 +8,7 @@
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QLineEdit> 
+#include <QLineEdit>
 #include <QLabel>
 
 namespace rviz_interactive_markers
@@ -78,17 +78,18 @@ namespace rviz_interactive_markers
     void MTRVizUI::onInitialize()
     {
         Panel::onInitialize();
-        createGrid();
     }
 
     void MTRVizUI::createGrid()
     {
-        double marker_size = 0.5; // Define marker size here
+        RCLCPP_INFO(node_->get_logger(), "Creating Grid of Markers...");
+        double marker_size = 1.0; // Define marker size here
         for (int row = 0; row < grid_rows_; ++row)
         {
             for (int col = 0; col < grid_cols_; ++col)
             {
                 createBoxMarker(row, col, marker_size);
+                RCLCPP_INFO(node_->get_logger(), "Created marker at (%d, %d)", row, col); // Logging marker creation
             }
         }
     }
@@ -96,16 +97,17 @@ namespace rviz_interactive_markers
     void MTRVizUI::createBoxMarker(int row, int col, double marker_size)
     {
         visualization_msgs::msg::InteractiveMarker marker;
-        marker.header.frame_id = "world";
+        marker.header.frame_id = "map";
         marker.name = "box_marker_" + std::to_string(row) + "_" + std::to_string(col);
         marker.description = marker.name;
         marker.pose.position.x = col * marker_spacing_;
         marker.pose.position.y = row * marker_spacing_;
-        marker.pose.position.z = 0.0;
+        marker.pose.position.z = 1.0; // above ground
+        RCLCPP_INFO(node_->get_logger(), "Created marker at (%f, %f, %f)", marker.pose.position.x, marker.pose.position.y, marker.pose.position.z);
 
         visualization_msgs::msg::InteractiveMarkerControl control;
         control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::BUTTON;
-        control.always_visible = true;
+        control.always_visible = false;
 
         visualization_msgs::msg::Marker box;
         box.type = visualization_msgs::msg::Marker::CUBE;
@@ -122,6 +124,7 @@ namespace rviz_interactive_markers
 
         marker_server_->insert(marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
         marker_server_->applyChanges();
+        RCLCPP_INFO(node_->get_logger(), "Created marker at (%d, %d)", row, col);
     }
 
     void MTRVizUI::add5x10InteractiveMarkers()
@@ -129,9 +132,8 @@ namespace rviz_interactive_markers
         // Create a grid of 5 rows and 10 columns of interactive markers (small boxes)
         int rows = 5;             // Number of rows
         int cols = 10;            // Number of columns
-        double marker_size = 0.2; // Small box size (adjust as needed)
+        double marker_size = 0.1; // Small box size
 
-        // Loop through rows and columns to create the markers
         for (int row = 0; row < rows; ++row)
         {
             for (int col = 0; col < cols; ++col)
@@ -145,42 +147,8 @@ namespace rviz_interactive_markers
     {
         if (feedback->event_type == visualization_msgs::msg::InteractiveMarkerFeedback::BUTTON_CLICK)
         {
-            toggleCylinderVisibility(feedback->marker_name);
-        }
-    }
-
-    void MTRVizUI::toggleCylinderVisibility(const std::string &marker_name)
-    {
-        bool &is_visible = cylinder_visibility_[marker_name];
-        is_visible = !is_visible;
-
-        visualization_msgs::msg::InteractiveMarker marker;
-        if (marker_server_->get(marker_name, marker))
-        {
-            marker.controls.clear();
-
-            visualization_msgs::msg::InteractiveMarkerControl control;
-            control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::BUTTON;
-            control.always_visible = true;
-
-            if (is_visible)
-            {
-                visualization_msgs::msg::Marker cylinder;
-                cylinder.type = visualization_msgs::msg::Marker::CYLINDER;
-                cylinder.scale.x = cylinder_radius_ * 2;
-                cylinder.scale.y = cylinder_radius_ * 2;
-                cylinder.scale.z = cylinder_height_;
-                cylinder.color.r = 0.2f;
-                cylinder.color.g = 0.8f;
-                cylinder.color.b = 0.2f;
-                cylinder.color.a = 1.0f;
-
-                control.markers.push_back(cylinder);
-            }
-
-            marker.controls.push_back(control);
-            marker_server_->insert(marker);
-            marker_server_->applyChanges();
+            RCLCPP_INFO(node_->get_logger(), "Marker [%s] clicked!", feedback->marker_name.c_str());
+            // Additional behavior can be added here
         }
     }
 
@@ -195,9 +163,8 @@ namespace rviz_interactive_markers
         transform.transform.translation.y = y_input_->text().toDouble();
         transform.transform.translation.z = z_input_->text().toDouble();
 
-        // Use a default quaternion with no rotation (identity quaternion)
         tf2::Quaternion quat;
-        quat.setRPY(0.0, 0.0, 0.0); // No rotation (identity)
+        quat.setRPY(0.0, 0.0, 0.0); // Identity rotation
         transform.transform.rotation = tf2::toMsg(quat);
 
         tf_broadcaster_->sendTransform(transform);
