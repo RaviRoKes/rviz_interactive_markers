@@ -10,6 +10,7 @@
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QLabel>
+#include <QString>
 
 namespace rviz_interactive_markers
 {
@@ -59,7 +60,6 @@ namespace rviz_interactive_markers
         create_grid_button_ = new QPushButton("Create Grid of Markers");
         layout->addWidget(create_grid_button_);
         connect(create_grid_button_, &QPushButton::clicked, this, &MTRVizUI::createGrid);
-
 
         setLayout(layout);
         setFixedSize(400, 300); // Or any other size depending on your layout
@@ -122,21 +122,49 @@ namespace rviz_interactive_markers
         RCLCPP_INFO(node_->get_logger(), "Created marker at (%d, %d)", row, col);
     }
 
-
     void MTRVizUI::processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback)
     {
-        if (feedback->event_type == visualization_msgs::msg::InteractiveMarkerFeedback::BUTTON_CLICK)
+        if (feedback->event_type == visualization_msgs::msg::InteractiveMarkerFeedback::POSE_UPDATE)
         {
-            RCLCPP_INFO(node_->get_logger(), "Marker [%s] clicked!", feedback->marker_name.c_str());
-            // Additional behavior can be added here
+            RCLCPP_INFO(node_->get_logger(), "Marker [%s] moved to position: (%f, %f, %f)",
+                        feedback->marker_name.c_str(),
+                        feedback->pose.position.x,
+                        feedback->pose.position.y,
+                        feedback->pose.position.z);
+
+            // Optionally, broadcast a transform with the updated position
+            geometry_msgs::msg::TransformStamped transform;
+            transform.header.stamp = node_->get_clock()->now();
+            transform.header.frame_id = "map";                // Parent frame
+            transform.child_frame_id = feedback->marker_name; // Marker name as child frame
+
+            transform.transform.translation.x = feedback->pose.position.x;
+            transform.transform.translation.y = feedback->pose.position.y;
+            transform.transform.translation.z = feedback->pose.position.z;
+
+            tf2::Quaternion quat;
+            quat.setRPY(0.0, 0.0, 0.0); // Identity rotation (no rotation)
+            transform.transform.rotation = tf2::toMsg(quat);
+
+            tf_broadcaster_->sendTransform(transform);
         }
     }
 
     void MTRVizUI::broadcastTransform()
     {
+        std::string parent_frame = parent_frame_input_->text().toStdString();
+        std::string child_frame = child_frame_input_->text().toStdString();
+
+        // Check if either frame name is empty or contains spaces
+        if (parent_frame.empty() || child_frame.empty() || parent_frame.find(" ") != std::string::npos || child_frame.find(" ") != std::string::npos)
+        {
+            RCLCPP_ERROR(node_->get_logger(), "Parent or Child frame is empty or contains spaces.");
+            return;
+        }
+
         geometry_msgs::msg::TransformStamped transform;
-        transform.header.frame_id = parent_frame_input_->text().toStdString();
-        transform.child_frame_id = child_frame_input_->text().toStdString();
+        transform.header.frame_id = parent_frame;
+        transform.child_frame_id = child_frame;
         transform.header.stamp = node_->get_clock()->now();
 
         transform.transform.translation.x = x_input_->text().toDouble();
