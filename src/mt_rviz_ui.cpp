@@ -15,8 +15,7 @@
 namespace rviz_interactive_markers
 {
     MTRVizUI::MTRVizUI(QWidget *parent)
-        : rviz_common::Panel(parent), marker_spacing_(1.0), grid_rows_(4), grid_cols_(4),
-          cylinder_radius_(0.05), cylinder_height_(0.2)
+        : rviz_common::Panel(parent), marker_spacing_(1.0), grid_rows_(4), grid_cols_(4)
     {
         // Initialize ROS 2 node
         node_ = std::make_shared<rclcpp::Node>("mt_rviz_ui");
@@ -65,7 +64,7 @@ namespace rviz_interactive_markers
         setFixedSize(400, 300); // Or any other size depending on your layout
     }
 
-    MTRVizUI::~MTRVizUI()
+    MTRVizUI::~MTRVizUI() // destructor
     {
         marker_server_.reset();
         tf_broadcaster_.reset();
@@ -93,6 +92,8 @@ namespace rviz_interactive_markers
     {
         visualization_msgs::msg::InteractiveMarker marker;
         marker.header.frame_id = "map";
+
+        marker.header.stamp = node_->get_clock()->now(); // Update the timestamp
         marker.name = "box_marker_" + std::to_string(row) + "_" + std::to_string(col);
         marker.description = marker.name;
         marker.pose.position.x = col * marker_spacing_;
@@ -102,7 +103,7 @@ namespace rviz_interactive_markers
 
         visualization_msgs::msg::InteractiveMarkerControl control;
         control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::BUTTON;
-        control.always_visible = false;
+        control.always_visible = true;
 
         visualization_msgs::msg::Marker box;
         box.type = visualization_msgs::msg::Marker::CUBE;
@@ -112,7 +113,7 @@ namespace rviz_interactive_markers
         box.color.r = 0.5;
         box.color.g = 0.5;
         box.color.b = 0.5;
-        box.color.a = 1.0;
+        box.color.a = 1.0; // Alpha (transparency) component (0.0 is fully transparent, 1.0 is fully opaque)
 
         control.markers.push_back(box);
         marker.controls.push_back(control);
@@ -132,11 +133,11 @@ namespace rviz_interactive_markers
                         feedback->pose.position.y,
                         feedback->pose.position.z);
 
-            // Optionally, broadcast a transform with the updated position
+            // // Create a transform and update the timestamp
             geometry_msgs::msg::TransformStamped transform;
-            transform.header.stamp = node_->get_clock()->now();
-            transform.header.frame_id = "map";                // Parent frame
-            transform.child_frame_id = feedback->marker_name; // Marker name as child frame
+            transform.header.stamp = node_->get_clock()->now(); // Update the timestamp
+            transform.header.frame_id = "map";                  // Parent frame
+            transform.child_frame_id = feedback->marker_name;   // Marker name as child frame
 
             transform.transform.translation.x = feedback->pose.position.x;
             transform.transform.translation.y = feedback->pose.position.y;
