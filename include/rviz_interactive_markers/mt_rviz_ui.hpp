@@ -29,7 +29,6 @@ namespace rviz_interactive_markers
     // Slots for button actions
     void broadcastTransform();           // Broadcast a transform using input values
     void createGrid();                   // Create a grid of interactive markers
-    void add5x10InteractiveMarkers();    // Create a custom 5x10 grid of small markers
 
   private:
     // Methods for marker management
@@ -58,7 +57,7 @@ namespace rviz_interactive_markers
 
     // Buttons for marker grid creation
     QPushButton *create_grid_button_;   // Button to create a marker grid
-    QPushButton *add_5x10_grid_button_; // Button to create a 5x10 grid
+  
 
     // Marker grid configuration
     double marker_spacing_; // Spacing between markers

@@ -60,10 +60,6 @@ namespace rviz_interactive_markers
         layout->addWidget(create_grid_button_);
         connect(create_grid_button_, &QPushButton::clicked, this, &MTRVizUI::createGrid);
 
-        // Add "Add 5x10 Interactive Markers" button
-        add_5x10_grid_button_ = new QPushButton("Add 5x10 Interactive Markers");
-        layout->addWidget(add_5x10_grid_button_);
-        connect(add_5x10_grid_button_, &QPushButton::clicked, this, &MTRVizUI::add5x10InteractiveMarkers);
 
         setLayout(layout);
         setFixedSize(400, 300); // Or any other size depending on your layout
@@ -89,7 +85,6 @@ namespace rviz_interactive_markers
             for (int col = 0; col < grid_cols_; ++col)
             {
                 createBoxMarker(row, col, marker_size);
-                RCLCPP_INFO(node_->get_logger(), "Created marker at (%d, %d)", row, col); // Logging marker creation
             }
         }
     }
@@ -127,21 +122,6 @@ namespace rviz_interactive_markers
         RCLCPP_INFO(node_->get_logger(), "Created marker at (%d, %d)", row, col);
     }
 
-    void MTRVizUI::add5x10InteractiveMarkers()
-    {
-        // Create a grid of 5 rows and 10 columns of interactive markers (small boxes)
-        int rows = 5;             // Number of rows
-        int cols = 10;            // Number of columns
-        double marker_size = 0.1; // Small box size
-
-        for (int row = 0; row < rows; ++row)
-        {
-            for (int col = 0; col < cols; ++col)
-            {
-                createBoxMarker(row, col, marker_size);
-            }
-        }
-    }
 
     void MTRVizUI::processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback)
     {
