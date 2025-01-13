@@ -5,24 +5,29 @@
 #include <rviz_common/properties/float_property.hpp>
 #include <rviz_common/properties/int_property.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <visualization_msgs/msg/interactive_marker.hpp>
+#include <visualization_msgs/msg/interactive_marker_control.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLineEdit>
 #include <QLabel>
 #include <QString>
+#include <QPushButton>
 
 namespace rviz_interactive_markers
 {
+
     MTRVizUI::MTRVizUI(QWidget *parent)
-        : rviz_common::Panel(parent), marker_spacing_(1.0), grid_rows_(4), grid_cols_(4)
+        : rviz_common::Panel(parent), is_box_(true)
     {
         // Initialize ROS 2 node
         node_ = std::make_shared<rclcpp::Node>("mt_rviz_ui");
 
-        // Initialize marker server and TF broadcaster
-        marker_server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>("mt_marker_server", node_);
-        tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(node_);
+
+        // Initialize interactive marker server
+        marker_server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>("interactive_marker_server", node_);
 
         // Set up UI components
         auto *layout = new QVBoxLayout();
@@ -55,99 +60,106 @@ namespace rviz_interactive_markers
         layout->addWidget(broadcast_button_);
         connect(broadcast_button_, &QPushButton::clicked, this, &MTRVizUI::broadcastTransform);
 
-        // Add "Create Grid" button
-        create_grid_button_ = new QPushButton("Create Grid of Markers");
-        layout->addWidget(create_grid_button_);
-        connect(create_grid_button_, &QPushButton::clicked, this, &MTRVizUI::createGrid);
+        // Add "Toggle Marker" button
+        toggle_marker_button_ = new QPushButton("Toggle Marker");
+        layout->addWidget(toggle_marker_button_);
+        connect(toggle_marker_button_, &QPushButton::clicked, this, &MTRVizUI::toggleMarker);
 
         setLayout(layout);
-        setFixedSize(400, 300); // Or any other size depending on your layout
-    }
-
-    MTRVizUI::~MTRVizUI() // destructor
-    {
-        marker_server_.reset();
-        tf_broadcaster_.reset();
+        setFixedSize(400, 300);
     }
 
     void MTRVizUI::onInitialize()
     {
-        Panel::onInitialize();
-    }
-
-    void MTRVizUI::createGrid()
-    {
-        RCLCPP_INFO(node_->get_logger(), "Creating Grid of Markers...");
-        double marker_size = 1.0; // Define marker size here
-        for (int row = 0; row < grid_rows_; ++row)
+        // Create a node for the plugin if not already created
+        if (!node_)
         {
-            for (int col = 0; col < grid_cols_; ++col)
-            {
-                createBoxMarker(row, col, marker_size);
-            }
+            node_ = rclcpp::Node::make_shared("mt_rviz_ui_node");
         }
+
+        // spin node in extra thread to allow communication with ROS
+        spin_thread_ = std::thread
+        ([this]() {
+            rclcpp::spin(node_);
+        });
+
+        RCLCPP_INFO(node_->get_logger(), "MTRVizUI initialized.");
+        // Initialize the transform broadcaster
+        tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(node_);
+        RCLCPP_INFO(node_->get_logger(), "Transform broadcaster initialized.");
     }
 
-    void MTRVizUI::createBoxMarker(int row, int col, double marker_size)
+    MTRVizUI::~MTRVizUI()
     {
-        visualization_msgs::msg::InteractiveMarker marker;
-        marker.header.frame_id = "map";
+        marker_server_.reset();
+    }
 
-        marker.header.stamp = node_->get_clock()->now(); // Update the timestamp
-        marker.name = "box_marker_" + std::to_string(row) + "_" + std::to_string(col);
-        marker.description = marker.name;
-        marker.pose.position.x = col * marker_spacing_;
-        marker.pose.position.y = row * marker_spacing_;
-        marker.pose.position.z = 1.0; // above ground
-        RCLCPP_INFO(node_->get_logger(), "Created marker at (%f, %f, %f)", marker.pose.position.x, marker.pose.position.y, marker.pose.position.z);
+    void MTRVizUI::toggleMarker()
+    {
+        // Toggle marker shape
+        is_box_ = !is_box_;
 
-        visualization_msgs::msg::InteractiveMarkerControl control;
-        control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::BUTTON;
-        control.always_visible = true;
-
-        visualization_msgs::msg::Marker box;
-        box.type = visualization_msgs::msg::Marker::CUBE;
-        box.scale.x = marker_size; // Use the passed marker size
-        box.scale.y = marker_size;
-        box.scale.z = marker_size;
-        box.color.r = 0.5;
-        box.color.g = 0.5;
-        box.color.b = 0.5;
-        box.color.a = 1.0; // Alpha (transparency) component (0.0 is fully transparent, 1.0 is fully opaque)
-
-        control.markers.push_back(box);
-        marker.controls.push_back(control);
-
-        marker_server_->insert(marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
+        // Create a new interactive marker with the updated shape
+        auto int_marker = createInteractiveMarker();
+        // marker_server_->clear(); // Clear existing markers
+        marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
         marker_server_->applyChanges();
-        RCLCPP_INFO(node_->get_logger(), "Created marker at (%d, %d)", row, col);
+
+        RCLCPP_INFO(node_->get_logger(), "Toggled marker to %s.", is_box_ ? "Box" : "Sphere");
+    }
+
+    visualization_msgs::msg::InteractiveMarker MTRVizUI::createInteractiveMarker()
+    {
+        visualization_msgs::msg::InteractiveMarker int_marker;
+
+        // Set marker properties
+        int_marker.header.frame_id = "world";
+        int_marker.name = "toggle_marker";
+        int_marker.description = "Click to Toggle Box/Sphere";
+        int_marker.scale = 1.0;
+
+        // Set initial position
+        int_marker.pose.position.x = 0.0;
+        int_marker.pose.position.y = 0.0;
+        int_marker.pose.position.z = 0.0;
+
+        // Create a marker (box or sphere)
+        visualization_msgs::msg::Marker marker;
+        marker.type = is_box_ ? visualization_msgs::msg::Marker::CUBE : visualization_msgs::msg::Marker::SPHERE;
+        marker.scale.x = 0.5;
+        marker.scale.y = 0.5;
+        marker.scale.z = 0.5;
+        marker.color.r = 0.0;
+        marker.color.g = 1.0;
+        marker.color.b = 0.0;
+        marker.color.a = 1.0;
+
+        // Add marker control
+        visualization_msgs::msg::InteractiveMarkerControl control;
+        control.always_visible = true;
+        control.markers.push_back(marker);
+        int_marker.controls.push_back(control);
+
+        // Add a button control for interaction
+        visualization_msgs::msg::InteractiveMarkerControl button_control;
+        button_control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::BUTTON;
+
+        visualization_msgs::msg::Marker button_control_marker = marker;
+        button_control_marker.pose.position.x = 1.0;
+        // button_control_marker.color.a = 0.0;
+        button_control.markers.push_back(button_control_marker);
+        int_marker.controls.push_back(button_control);
+
+        return int_marker;
     }
 
     void MTRVizUI::processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback)
     {
-        if (feedback->event_type == visualization_msgs::msg::InteractiveMarkerFeedback::POSE_UPDATE)
+        RCLCPP_INFO(node_->get_logger(), "Feedback from marker '%s'.", feedback->marker_name.c_str());
+        if (feedback->event_type == visualization_msgs::msg::InteractiveMarkerFeedback::BUTTON_CLICK)
         {
-            RCLCPP_INFO(node_->get_logger(), "Marker [%s] moved to position: (%f, %f, %f)",
-                        feedback->marker_name.c_str(),
-                        feedback->pose.position.x,
-                        feedback->pose.position.y,
-                        feedback->pose.position.z);
-
-            // // Create a transform and update the timestamp
-            geometry_msgs::msg::TransformStamped transform;
-            transform.header.stamp = node_->get_clock()->now(); // Update the timestamp
-            transform.header.frame_id = "map";                  // Parent frame
-            transform.child_frame_id = feedback->marker_name;   // Marker name as child frame
-
-            transform.transform.translation.x = feedback->pose.position.x;
-            transform.transform.translation.y = feedback->pose.position.y;
-            transform.transform.translation.z = feedback->pose.position.z;
-
-            tf2::Quaternion quat;
-            quat.setRPY(0.0, 0.0, 0.0); // Identity rotation (no rotation)
-            transform.transform.rotation = tf2::toMsg(quat);
-
-            tf_broadcaster_->sendTransform(transform);
+            RCLCPP_INFO(node_->get_logger(), "Marker '%s' clicked.", feedback->marker_name.c_str());
+            toggleMarker(); // Toggle marker shape on click
         }
     }
 
@@ -162,7 +174,6 @@ namespace rviz_interactive_markers
             RCLCPP_ERROR(node_->get_logger(), "Parent or Child frame is empty or contains spaces.");
             return;
         }
-
         geometry_msgs::msg::TransformStamped transform;
         transform.header.frame_id = parent_frame;
         transform.child_frame_id = child_frame;
@@ -183,3 +194,4 @@ namespace rviz_interactive_markers
 
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(rviz_interactive_markers::MTRVizUI, rviz_common::Panel)
+//ff

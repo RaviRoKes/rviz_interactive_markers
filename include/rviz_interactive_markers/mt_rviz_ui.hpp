@@ -4,12 +4,15 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <interactive_markers/interactive_marker_server.hpp>
+#include <visualization_msgs/msg/interactive_marker.hpp>
+#include <visualization_msgs/msg/interactive_marker_control.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 #include <QPushButton>
 #include <rviz_common/panel.hpp>
 #include <QLineEdit>
-
 #include <map>
 #include <string>
+#include <thread>
 
 namespace rviz_interactive_markers
 {
@@ -27,22 +30,19 @@ namespace rviz_interactive_markers
 
   private Q_SLOTS:
     // Slots for button actions
-    void broadcastTransform();           // Broadcast a transform using input values
-    void createGrid();                   // Create a grid of interactive markers
+    void broadcastTransform(); // Broadcast a transform using input values
+    void toggleMarker();       // Toggle between box and sphere markers
 
   private:
     // Methods for marker management
-    void createBoxMarker(int row, int col, double marker_size); // Add a box marker to the grid
-    void toggleCylinderVisibility(const std::string &marker_name); // Toggle cylinder visibility on click
+    visualization_msgs::msg::InteractiveMarker createInteractiveMarker(); // Create a toggleable interactive marker
     void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback); // Handle marker feedback
 
     // ROS Node and resources
     rclcpp::Node::SharedPtr node_;                                      // ROS Node for communication
-    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;    // Broadcast transforms
+    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;     // Broadcast transforms
     std::shared_ptr<interactive_markers::InteractiveMarkerServer> marker_server_; // Manage interactive markers
-
-    // Cylinder visibility map
-    std::map<std::string, bool> cylinder_visibility_; // Tracks marker visibility
+    std::thread spin_thread_; // Thread for spinning the ROS node
 
     // UI Elements for user inputs
     QLineEdit *child_frame_input_; // Input field for child frame
@@ -50,23 +50,11 @@ namespace rviz_interactive_markers
     QLineEdit *x_input_;            // Input field for X translation
     QLineEdit *y_input_;            // Input field for Y translation
     QLineEdit *z_input_;            // Input field for Z translation
-    QLineEdit *roll_input_;         // Input field for roll (optional, unused)
-    QLineEdit *pitch_input_;        // Input field for pitch (optional, unused)
-    QLineEdit *yaw_input_;          // Input field for yaw (optional, unused)
     QPushButton *broadcast_button_; // Button to broadcast transforms
+    QPushButton *toggle_marker_button_; // Button to toggle the marker shape
 
-    // Buttons for marker grid creation
-    QPushButton *create_grid_button_;   // Button to create a marker grid
-  
-
-    // Marker grid configuration
-    double marker_spacing_; // Spacing between markers
-    int grid_rows_;         // Number of rows in the grid
-    int grid_cols_;         // Number of columns in the grid
-
-    // Cylinder marker parameters
-    double cylinder_radius_;  // Radius of the cylinder marker
-    double cylinder_height_;  // Height of the cylinder marker
+    // Marker toggle state
+    bool is_box_; // Tracks whether the marker is currently a box or sphere
   };
 
 } // namespace rviz_interactive_markers
