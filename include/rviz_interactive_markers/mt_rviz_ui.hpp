@@ -48,9 +48,8 @@ namespace rviz_interactive_markers
     // UI Elements for user inputs
     QLineEdit *child_frame_input_;      // Input field for child frame
     QLineEdit *parent_frame_input_;     // Input field for parent frame
-    QLineEdit *x_input_;                // Input field for X translation
-    QLineEdit *y_input_;                // Input field for Y translation
-    QLineEdit *z_input_;                // Input field for Z translation
+    QLineEdit *height_input_;           // Input field for cylinder height
+    QLineEdit *radius_input_;           // Input field for cylinder radius
     QPushButton *broadcast_button_;     // Button to broadcast transforms
     QPushButton *toggle_marker_button_; // Button to toggle the marker shape
 
@@ -62,3 +61,4 @@ namespace rviz_interactive_markers
 } // namespace rviz_interactive_markers
 
 #endif // RVIZ_INTERACTIVE_MARKERS_MT_RVIZ_UI_HPP
+//dfdfd

@@ -1,5 +1,4 @@
 #include "rviz_interactive_markers/mt_rviz_ui.hpp"
-
 #include <rviz_common/display_context.hpp>
 #include <rviz_common/properties/string_property.hpp>
 #include <rviz_common/properties/float_property.hpp>
@@ -15,10 +14,11 @@
 #include <QLabel>
 #include <QString>
 #include <QPushButton>
+#include <QGroupBox>
+#include <QFormLayout>
 
 namespace rviz_interactive_markers
 {
-
     MTRVizUI::MTRVizUI(QWidget *parent)
         : rviz_common::Panel(parent), is_box_(true)
     {
@@ -26,35 +26,58 @@ namespace rviz_interactive_markers
         node_ = std::make_shared<rclcpp::Node>("mt_rviz_ui");
 
         // Initialize interactive marker server
-        marker_server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>("interactive_marker_server", node_);
+        marker_server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>(
+            "interactive_marker_server", node_);
 
-        // Set up UI components
-        auto *layout = new QVBoxLayout();
+        // Initialize input fields for frames
+        child_frame_input_ = new QLineEdit(this);
+        child_frame_input_->setPlaceholderText("Enter Child Frame Name");
 
-        // Add frame input fields
-        auto *frame_layout = new QHBoxLayout();
-        frame_layout->addWidget(new QLabel("Child Frame:"));
-        child_frame_input_ = new QLineEdit();
-        frame_layout->addWidget(child_frame_input_);
-        frame_layout->addWidget(new QLabel("Parent Frame:"));
-        parent_frame_input_ = new QLineEdit();
-        frame_layout->addWidget(parent_frame_input_);
-        layout->addLayout(frame_layout);
+        parent_frame_input_ = new QLineEdit(this);
+        parent_frame_input_->setPlaceholderText("Enter Parent Frame Name");
 
-        // Add broadcast button
-        broadcast_button_ = new QPushButton("Broadcast Transform");
-        layout->addWidget(broadcast_button_);
+        // Group for frame inputs
+        QGroupBox *frame_group = new QGroupBox("Frames", this);
+        QFormLayout *frame_layout = new QFormLayout;
+        frame_layout->addRow("Child Frame:", child_frame_input_);
+        frame_layout->addRow("Parent Frame:", parent_frame_input_);
+
+        // Initialize the broadcast button and add to the frame layout
+        broadcast_button_ = new QPushButton("Broadcast Transform", this);
         connect(broadcast_button_, &QPushButton::clicked, this, &MTRVizUI::broadcastTransform);
+        frame_layout->addRow(broadcast_button_); // Add the button here
 
-        // Add "Toggle Marker" button
-        toggle_marker_button_ = new QPushButton("Create/Toggle Marker");
-        layout->addWidget(toggle_marker_button_);
+        frame_group->setLayout(frame_layout);
+
+        // Initialize input fields for cylinder dimensions
+        height_input_ = new QLineEdit(this);
+        height_input_->setPlaceholderText("Enter Cylinder Height");
+
+        radius_input_ = new QLineEdit(this);
+        radius_input_->setPlaceholderText("Enter Cylinder Radius");
+
+        // Group for cylinder dimensions
+        QGroupBox *cylinder_group = new QGroupBox("Cylinder Dimensions", this);
+        QFormLayout *cylinder_layout = new QFormLayout;
+        cylinder_layout->addRow("Height:", height_input_);
+        cylinder_layout->addRow("Radius:", radius_input_);
+        cylinder_group->setLayout(cylinder_layout);
+
+        // Initialize the toggle marker button
+        toggle_marker_button_ = new QPushButton("Create/Toggle Marker", this);
         connect(toggle_marker_button_, &QPushButton::clicked, this, &MTRVizUI::toggleMarker);
 
-        setLayout(layout);
-        setFixedSize(300, 300);
-    }
+        // Set up layout for the panel
+        QVBoxLayout *main_layout = new QVBoxLayout;
+        main_layout->addWidget(frame_group);    // Frames group including the button
+        main_layout->addWidget(cylinder_group); // Cylinder dimensions group
+        main_layout->addWidget(toggle_marker_button_);
 
+        setLayout(main_layout);
+
+        // Set fixed size for the panel
+        setFixedSize(400, 350);
+    }
     void MTRVizUI::onInitialize()
     {
         // Create a node for the plugin if not already created
@@ -115,7 +138,7 @@ namespace rviz_interactive_markers
         visualization_msgs::msg::InteractiveMarker int_marker;
         int_marker.header.frame_id = "world";
         int_marker.name = "marker_" + std::to_string(i) + "_" + std::to_string(j);
-        int_marker.description = "Toggle Marker Shape";
+        int_marker.description = "Marker";
         int_marker.scale = 1.0;
 
         // Set marker position
@@ -160,15 +183,42 @@ namespace rviz_interactive_markers
             return;
         }
 
-        // Toggle marker state
+        // Toggle marker state (Cube -> Cylinder or Cylinder -> Cube)
         marker_states_[i][j] = !marker_states_[i][j];
 
-        // Update marker with the new shape
-        auto int_marker = createInteractiveMarker(i, j, feedback->pose.position.x, feedback->pose.position.y, feedback->pose.position.z);
+        // Fetch height and radius from input fields for cylinder creation
+        double height = height_input_->text().toDouble();
+        double radius = radius_input_->text().toDouble();
+
+        // Apply small Z-axis movement (e.g., +0.1 in Z direction)
+        double z_offset = 0.5;
+
+        // Create the new marker (either cube or cylinder)
+        auto int_marker = createInteractiveMarker(i, j, feedback->pose.position.x, feedback->pose.position.y, feedback->pose.position.z + z_offset);
+
+        // If the marker is to be a cylinder, adjust its properties
+        if (!marker_states_[i][j]) // If state is false, we use cylinder
+        {
+            visualization_msgs::msg::Marker marker;
+            marker.type = visualization_msgs::msg::Marker::CYLINDER;
+            marker.scale.x = radius * 2; // Set diameter based on the radius
+            marker.scale.y = radius * 2; // Set diameter based on the radius
+            marker.scale.z = height;     // Set height
+            marker.color.r = 0.0;
+            marker.color.g = 1.0;
+            marker.color.b = 0.0;
+            marker.color.a = 1.0;
+
+            // Add the new marker to the interactive marker controls
+            int_marker.controls[0].markers[0] = marker;
+        }
+
+        // Insert the new marker and apply changes
         marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
         marker_server_->applyChanges();
 
-        RCLCPP_INFO(node_->get_logger(), "Toggled marker at [%d, %d] to %s.", i, j, marker_states_[i][j] ? "Cube" : "Cylinder");
+        RCLCPP_INFO(node_->get_logger(), "Toggled marker at [%d, %d] to %s with height: %.2f and radius: %.2f.", i, j,
+                    marker_states_[i][j] ? "Cube" : "Cylinder", height, radius);
     }
 
     void MTRVizUI::broadcastTransform()
@@ -202,4 +252,4 @@ namespace rviz_interactive_markers
 
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(rviz_interactive_markers::MTRVizUI, rviz_common::Panel)
-// ff
+// ff dfg d
