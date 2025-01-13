@@ -25,7 +25,6 @@ namespace rviz_interactive_markers
         // Initialize ROS 2 node
         node_ = std::make_shared<rclcpp::Node>("mt_rviz_ui");
 
-
         // Initialize interactive marker server
         marker_server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>("interactive_marker_server", node_);
 
@@ -42,31 +41,18 @@ namespace rviz_interactive_markers
         frame_layout->addWidget(parent_frame_input_);
         layout->addLayout(frame_layout);
 
-        // Add position inputs
-        auto *pos_layout = new QHBoxLayout();
-        pos_layout->addWidget(new QLabel("X:"));
-        x_input_ = new QLineEdit();
-        pos_layout->addWidget(x_input_);
-        pos_layout->addWidget(new QLabel("Y:"));
-        y_input_ = new QLineEdit();
-        pos_layout->addWidget(y_input_);
-        pos_layout->addWidget(new QLabel("Z:"));
-        z_input_ = new QLineEdit();
-        pos_layout->addWidget(z_input_);
-        layout->addLayout(pos_layout);
-
         // Add broadcast button
         broadcast_button_ = new QPushButton("Broadcast Transform");
         layout->addWidget(broadcast_button_);
         connect(broadcast_button_, &QPushButton::clicked, this, &MTRVizUI::broadcastTransform);
 
         // Add "Toggle Marker" button
-        toggle_marker_button_ = new QPushButton("Toggle Marker");
+        toggle_marker_button_ = new QPushButton("Create/Toggle Marker");
         layout->addWidget(toggle_marker_button_);
         connect(toggle_marker_button_, &QPushButton::clicked, this, &MTRVizUI::toggleMarker);
 
         setLayout(layout);
-        setFixedSize(400, 300);
+        setFixedSize(300, 300);
     }
 
     void MTRVizUI::onInitialize()
@@ -78,10 +64,8 @@ namespace rviz_interactive_markers
         }
 
         // spin node in extra thread to allow communication with ROS
-        spin_thread_ = std::thread
-        ([this]() {
-            rclcpp::spin(node_);
-        });
+        spin_thread_ = std::thread([this]()
+                                   { rclcpp::spin(node_); });
 
         RCLCPP_INFO(node_->get_logger(), "MTRVizUI initialized.");
         // Initialize the transform broadcaster
@@ -96,36 +80,52 @@ namespace rviz_interactive_markers
 
     void MTRVizUI::toggleMarker()
     {
-        // Toggle marker shape
-        is_box_ = !is_box_;
+        const int grid_size = 5;
+        const double spacing = 1.0; // Distance between markers
+        marker_states_.clear();     // Clear previous states
 
-        // Create a new interactive marker with the updated shape
-        auto int_marker = createInteractiveMarker();
-        // marker_server_->clear(); // Clear existing markers
-        marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
+        // Initialize marker states (default to cube)
+        marker_states_ = std::vector<std::vector<bool>>(grid_size, std::vector<bool>(grid_size, true));
+
+        // Clear existing markers from the server
+        marker_server_->clear();
+
+        // Create grid of interactive markers
+        for (int i = 0; i < grid_size; ++i)
+        {
+            for (int j = 0; j < grid_size; ++j)
+            {
+                // Calculate marker position
+                double x = i * spacing;
+                double y = j * spacing;
+                double z = 0.0;
+
+                // Create and insert the marker
+                auto int_marker = createInteractiveMarker(i, j, x, y, z);
+                marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
+            }
+        }
+
         marker_server_->applyChanges();
-
-        RCLCPP_INFO(node_->get_logger(), "Toggled marker to %s.", is_box_ ? "Box" : "Sphere");
+        RCLCPP_INFO(node_->get_logger(), "Created a %dx%d grid of markers.", grid_size, grid_size);
     }
 
-    visualization_msgs::msg::InteractiveMarker MTRVizUI::createInteractiveMarker()
+    visualization_msgs::msg::InteractiveMarker MTRVizUI::createInteractiveMarker(int i, int j, double x, double y, double z)
     {
         visualization_msgs::msg::InteractiveMarker int_marker;
-
-        // Set marker properties
         int_marker.header.frame_id = "world";
-        int_marker.name = "toggle_marker";
-        int_marker.description = "Click to Toggle Box/Sphere";
+        int_marker.name = "marker_" + std::to_string(i) + "_" + std::to_string(j);
+        int_marker.description = "Toggle Marker Shape";
         int_marker.scale = 1.0;
 
-        // Set initial position
-        int_marker.pose.position.x = 0.0;
-        int_marker.pose.position.y = 0.0;
-        int_marker.pose.position.z = 0.0;
+        // Set marker position
+        int_marker.pose.position.x = x;
+        int_marker.pose.position.y = y;
+        int_marker.pose.position.z = z;
 
-        // Create a marker (box or sphere)
+        // Create a marker (cube or cylinder based on state)
         visualization_msgs::msg::Marker marker;
-        marker.type = is_box_ ? visualization_msgs::msg::Marker::CUBE : visualization_msgs::msg::Marker::SPHERE;
+        marker.type = marker_states_[i][j] ? visualization_msgs::msg::Marker::CUBE : visualization_msgs::msg::Marker::CYLINDER;
         marker.scale.x = 0.5;
         marker.scale.y = 0.5;
         marker.scale.z = 0.5;
@@ -143,11 +143,7 @@ namespace rviz_interactive_markers
         // Add a button control for interaction
         visualization_msgs::msg::InteractiveMarkerControl button_control;
         button_control.interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::BUTTON;
-
-        visualization_msgs::msg::Marker button_control_marker = marker;
-        button_control_marker.pose.position.x = 1.0;
-        // button_control_marker.color.a = 0.0;
-        button_control.markers.push_back(button_control_marker);
+        button_control.markers.push_back(marker);
         int_marker.controls.push_back(button_control);
 
         return int_marker;
@@ -155,12 +151,24 @@ namespace rviz_interactive_markers
 
     void MTRVizUI::processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback)
     {
-        RCLCPP_INFO(node_->get_logger(), "Feedback from marker '%s'.", feedback->marker_name.c_str());
-        if (feedback->event_type == visualization_msgs::msg::InteractiveMarkerFeedback::BUTTON_CLICK)
+        // Parse marker name to get grid coordinates
+        std::string name = feedback->marker_name;
+        int i, j;
+        if (sscanf(name.c_str(), "marker_%d_%d", &i, &j) != 2)
         {
-            RCLCPP_INFO(node_->get_logger(), "Marker '%s' clicked.", feedback->marker_name.c_str());
-            toggleMarker(); // Toggle marker shape on click
+            RCLCPP_ERROR(node_->get_logger(), "Failed to parse marker name: %s", name.c_str());
+            return;
         }
+
+        // Toggle marker state
+        marker_states_[i][j] = !marker_states_[i][j];
+
+        // Update marker with the new shape
+        auto int_marker = createInteractiveMarker(i, j, feedback->pose.position.x, feedback->pose.position.y, feedback->pose.position.z);
+        marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
+        marker_server_->applyChanges();
+
+        RCLCPP_INFO(node_->get_logger(), "Toggled marker at [%d, %d] to %s.", i, j, marker_states_[i][j] ? "Cube" : "Cylinder");
     }
 
     void MTRVizUI::broadcastTransform()
@@ -179,9 +187,9 @@ namespace rviz_interactive_markers
         transform.child_frame_id = child_frame;
         transform.header.stamp = node_->get_clock()->now();
 
-        transform.transform.translation.x = x_input_->text().toDouble();
-        transform.transform.translation.y = y_input_->text().toDouble();
-        transform.transform.translation.z = z_input_->text().toDouble();
+        transform.transform.translation.x = 0.0;
+        transform.transform.translation.y = 0.0;
+        transform.transform.translation.z = 0.0;
 
         tf2::Quaternion quat;
         quat.setRPY(0.0, 0.0, 0.0); // Identity rotation
@@ -194,4 +202,4 @@ namespace rviz_interactive_markers
 
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(rviz_interactive_markers::MTRVizUI, rviz_common::Panel)
-//ff
+// ff

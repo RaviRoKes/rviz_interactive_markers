@@ -24,7 +24,7 @@ namespace rviz_interactive_markers
 
   public:
     explicit MTRVizUI(QWidget *parent = nullptr); // Constructor
-    ~MTRVizUI() override;                        // Destructor
+    ~MTRVizUI() override;                         // Destructor
 
     void onInitialize() override; // Initialize panel with default setup
 
@@ -35,26 +35,28 @@ namespace rviz_interactive_markers
 
   private:
     // Methods for marker management
-    visualization_msgs::msg::InteractiveMarker createInteractiveMarker(); // Create a toggleable interactive marker
-    void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback); // Handle marker feedback
+    // In mt_rviz_ui.hpp
+    visualization_msgs::msg::InteractiveMarker createInteractiveMarker(int i, int j, double x, double y, double z); // Create a toggleable interactive marker
+    void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback);       // Handle marker feedback
 
     // ROS Node and resources
-    rclcpp::Node::SharedPtr node_;                                      // ROS Node for communication
-    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;     // Broadcast transforms
+    rclcpp::Node::SharedPtr node_;                                                // ROS Node for communication
+    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;               // Broadcast transforms
     std::shared_ptr<interactive_markers::InteractiveMarkerServer> marker_server_; // Manage interactive markers
-    std::thread spin_thread_; // Thread for spinning the ROS node
+    std::thread spin_thread_;                                                     // Thread for spinning the ROS node
 
     // UI Elements for user inputs
-    QLineEdit *child_frame_input_; // Input field for child frame
-    QLineEdit *parent_frame_input_; // Input field for parent frame
-    QLineEdit *x_input_;            // Input field for X translation
-    QLineEdit *y_input_;            // Input field for Y translation
-    QLineEdit *z_input_;            // Input field for Z translation
-    QPushButton *broadcast_button_; // Button to broadcast transforms
+    QLineEdit *child_frame_input_;      // Input field for child frame
+    QLineEdit *parent_frame_input_;     // Input field for parent frame
+    QLineEdit *x_input_;                // Input field for X translation
+    QLineEdit *y_input_;                // Input field for Y translation
+    QLineEdit *z_input_;                // Input field for Z translation
+    QPushButton *broadcast_button_;     // Button to broadcast transforms
     QPushButton *toggle_marker_button_; // Button to toggle the marker shape
 
     // Marker toggle state
-    bool is_box_; // Tracks whether the marker is currently a box or sphere
+    std::vector<std::vector<bool>> marker_states_; // Grid of marker states
+    bool is_box_;                                  // Tracks whether the marker is currently a box or sphere
   };
 
 } // namespace rviz_interactive_markers
