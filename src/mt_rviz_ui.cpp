@@ -183,42 +183,51 @@ namespace rviz_interactive_markers
             return;
         }
 
-        // Toggle marker state (Cube -> Cylinder or Cylinder -> Cube)
-        marker_states_[i][j] = !marker_states_[i][j];
+        // Check if the marker is already a cylinder
+        if (!marker_states_[i][j])
+        {
+            RCLCPP_INFO(node_->get_logger(), "Marker at [%d, %d] is already a cylinder. No changes applied.", i, j);
+            return;
+        }
 
         // Fetch height and radius from input fields for cylinder creation
         double height = height_input_->text().toDouble();
         double radius = radius_input_->text().toDouble();
 
+        if (height <= 0 || radius <= 0)
+        {
+            RCLCPP_ERROR(node_->get_logger(), "Invalid dimensions. Height: %.2f, Radius: %.2f", height, radius);
+            return;
+        }
+
+        // Toggle marker state (Cube -> Cylinder)
+        marker_states_[i][j] = false;
+
         // Apply small Z-axis movement (e.g., +0.1 in Z direction)
         double z_offset = 0.5;
 
-        // Create the new marker (either cube or cylinder)
+        // Create the new marker (cylinder)
         auto int_marker = createInteractiveMarker(i, j, feedback->pose.position.x, feedback->pose.position.y, feedback->pose.position.z + z_offset);
 
-        // If the marker is to be a cylinder, adjust its properties
-        if (!marker_states_[i][j]) // If state is false, we use cylinder
-        {
-            visualization_msgs::msg::Marker marker;
-            marker.type = visualization_msgs::msg::Marker::CYLINDER;
-            marker.scale.x = radius * 2; // Set diameter based on the radius
-            marker.scale.y = radius * 2; // Set diameter based on the radius
-            marker.scale.z = height;     // Set height
-            marker.color.r = 0.0;
-            marker.color.g = 1.0;
-            marker.color.b = 0.0;
-            marker.color.a = 1.0;
+        RCLCPP_INFO(node_->get_logger(), "Creating a cylinder marker at [%d, %d].", i, j);
+        visualization_msgs::msg::Marker marker;
+        marker.type = visualization_msgs::msg::Marker::CYLINDER;
+        marker.scale.x = radius * 2; // Set diameter based on the radius
+        marker.scale.y = radius * 2; // Set diameter based on the radius
+        marker.scale.z = height;     // Set height
+        marker.color.r = 0.0;
+        marker.color.g = 1.0;
+        marker.color.b = 0.0;
+        marker.color.a = 1.0;
 
-            // Add the new marker to the interactive marker controls
-            int_marker.controls[0].markers[0] = marker;
-        }
+        // Add the new marker to the interactive marker controls
+        int_marker.controls[0].markers[0] = marker;
 
         // Insert the new marker and apply changes
         marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
         marker_server_->applyChanges();
 
-        RCLCPP_INFO(node_->get_logger(), "Toggled marker at [%d, %d] to %s with height: %.2f and radius: %.2f.", i, j,
-                    marker_states_[i][j] ? "Cube" : "Cylinder", height, radius);
+        RCLCPP_INFO(node_->get_logger(), "Toggled marker at [%d, %d] to Cylinder with height: %.2f and radius: %.2f.", i, j, height, radius);
     }
 
     void MTRVizUI::broadcastTransform()
