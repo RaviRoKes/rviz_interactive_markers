@@ -27,17 +27,16 @@ namespace rviz_interactive_markers
     ~MTRVizUI() override;                         // Destructor
 
     void onInitialize() override; // Initialize panel with default setup
-
   private Q_SLOTS:
     // Slots for button actions
     void broadcastTransform(); // Broadcast a transform using input values
     void toggleMarker();       // Toggle between box and sphere markers
-
+    void resetMarkers();       // Reset all markers in the grid
   private:
     // Methods for marker management
     // In mt_rviz_ui.hpp
     visualization_msgs::msg::InteractiveMarker createInteractiveMarker(int i, int j, double x, double y, double z, const std::string &frame_id); // Create a toggleable interactive marker
-    void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback);       // Handle marker feedback
+    void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback);                                    // Handle marker feedback
 
     // ROS Node and resourcese
     rclcpp::Node::SharedPtr node_;                                                // ROS Node for communication
@@ -52,6 +51,9 @@ namespace rviz_interactive_markers
     QLineEdit *radius_input_;           // Input field for cylinder radius
     QPushButton *broadcast_button_;     // Button to broadcast transforms
     QPushButton *toggle_marker_button_; // Button to toggle the marker shape
+    QLineEdit *length_input_;           // Input field for marker length
+    QLineEdit *width_input_;            // Input field for marker width
+    QPushButton *reset_button_;         // Button to reset the marker grid
 
     // Marker toggle state
     std::vector<std::vector<bool>> marker_states_; // Grid of marker states
@@ -61,4 +63,4 @@ namespace rviz_interactive_markers
 } // namespace rviz_interactive_markers
 
 #endif // RVIZ_INTERACTIVE_MARKERS_MT_RVIZ_UI_HPP
-//dfdfd   dfj jhdf  kfdn  
+       // dfdfd  M MOn

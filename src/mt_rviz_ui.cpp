@@ -14,8 +14,9 @@
 #include <QLabel>
 #include <QString>
 #include <QPushButton>
-#include <QGroupBox>
+#include <QTabWidget>
 #include <QFormLayout>
+#include <QWidget>
 
 namespace rviz_interactive_markers
 {
@@ -29,50 +30,71 @@ namespace rviz_interactive_markers
         marker_server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>(
             "interactive_marker_server", node_);
 
-        // Initialize input fields for frames
+        // Input fields for frames
         child_frame_input_ = new QLineEdit(this);
         child_frame_input_->setPlaceholderText("Enter Child Frame Name");
 
         parent_frame_input_ = new QLineEdit(this);
         parent_frame_input_->setPlaceholderText("Enter Parent Frame Name");
 
-        // Group for frame inputs
-        QGroupBox *frame_group = new QGroupBox("Frames", this);
-        QFormLayout *frame_layout = new QFormLayout;
-        frame_layout->addRow("Child Frame:", child_frame_input_);
-        frame_layout->addRow("Parent Frame:", parent_frame_input_);
-
-        // Initialize the broadcast button and add to the frame layout
+        // Broadcast button
         broadcast_button_ = new QPushButton("Broadcast Transform", this);
         connect(broadcast_button_, &QPushButton::clicked, this, &MTRVizUI::broadcastTransform);
-        frame_layout->addRow(broadcast_button_); // Add the button here
 
-        frame_group->setLayout(frame_layout);
-
-        // Initialize input fields for cylinder dimensions
+        // Input fields for cylinder dimensions
         height_input_ = new QLineEdit(this);
-        height_input_->setPlaceholderText("Enter Cylinder Height");
+        height_input_->setPlaceholderText("Enter Cylinder Height(mm)");
 
         radius_input_ = new QLineEdit(this);
-        radius_input_->setPlaceholderText("Enter Cylinder Radius");
+        radius_input_->setPlaceholderText("Enter Cylinder Radius(mm)");
 
-        // Group for cylinder dimensions
-        QGroupBox *cylinder_group = new QGroupBox("Cylinder Dimensions(mm)", this);
-        QFormLayout *cylinder_layout = new QFormLayout;
-        cylinder_layout->addRow("Height:", height_input_);
-        cylinder_layout->addRow("Radius:", radius_input_);
-        cylinder_group->setLayout(cylinder_layout);
+        // Input fields for marker dimensions
+        length_input_ = new QLineEdit(this);
+        length_input_->setPlaceholderText("Enter Marker Length(mm)");
+        width_input_ = new QLineEdit(this);
+        width_input_->setPlaceholderText("Enter Marker Width(mm)");
 
-        // Initialize the toggle marker button
+        // Toggle marker button
         toggle_marker_button_ = new QPushButton("Create/Toggle Marker", this);
         connect(toggle_marker_button_, &QPushButton::clicked, this, &MTRVizUI::toggleMarker);
 
-        // Set up layout for the panel
-        QVBoxLayout *main_layout = new QVBoxLayout;
-        main_layout->addWidget(frame_group);    // Frames group including the button
-        main_layout->addWidget(cylinder_group); // Cylinder dimensions group
-        main_layout->addWidget(toggle_marker_button_);
+        // Reset button
+        reset_button_ = new QPushButton("Reset Markers", this);
+        connect(reset_button_, &QPushButton::clicked, this, &MTRVizUI::resetMarkers);
 
+        // Frames Tab
+        QWidget *frames_tab = new QWidget(this);
+        QFormLayout *frame_layout = new QFormLayout;
+        frame_layout->addRow("Child Frame:", child_frame_input_);
+        frame_layout->addRow("Parent Frame:", parent_frame_input_);
+        frame_layout->addRow(broadcast_button_);
+        frames_tab->setLayout(frame_layout);
+
+        // Cylinder Dimensions Tab
+        QWidget *cylinder_tab = new QWidget(this);
+        QFormLayout *cylinder_layout = new QFormLayout;
+        cylinder_layout->addRow("Height:", height_input_);
+        cylinder_layout->addRow("Radius:", radius_input_);
+        cylinder_tab->setLayout(cylinder_layout);
+
+        // Additional tab example (optional, e.g., Marker Controls)
+        QWidget *marker_tab = new QWidget(this);
+        QFormLayout *marker_layout = new QFormLayout;
+        marker_layout->addRow("Length:", length_input_);
+        marker_layout->addRow("Width:", width_input_);
+        marker_layout->addWidget(toggle_marker_button_);
+        marker_tab->setLayout(marker_layout);
+
+        // Create the Tab Widget
+        QTabWidget *tab_widget = new QTabWidget(this);
+        tab_widget->addTab(frames_tab, "Frames");
+        tab_widget->addTab(cylinder_tab, "Cylinder Dimensions(mm)");
+        tab_widget->addTab(marker_tab, "Marker Controls");
+
+        // Main layout
+        QVBoxLayout *main_layout = new QVBoxLayout;
+        main_layout->addWidget(tab_widget);
+        main_layout->addWidget(reset_button_);
         setLayout(main_layout);
 
         // Set fixed size for the panel
@@ -85,7 +107,6 @@ namespace rviz_interactive_markers
         {
             node_ = rclcpp::Node::make_shared("mt_rviz_ui_node");
         }
-
         // spin node in extra thread to allow communication with ROS
         spin_thread_ = std::thread([this]()
                                    { rclcpp::spin(node_); });
@@ -100,7 +121,14 @@ namespace rviz_interactive_markers
     {
         marker_server_.reset();
     }
-
+    void MTRVizUI::resetMarkers()
+    {
+        // Clear all markers from the interactive marker server
+        marker_server_->clear();
+        // Apply changes (this will effectively remove all markers)
+        marker_server_->applyChanges();
+        RCLCPP_INFO(node_->get_logger(), "All markers have been reset.");
+    }
     void MTRVizUI::toggleMarker()
     {
         const std::vector<std::string> frames = {
@@ -114,27 +142,22 @@ namespace rviz_interactive_markers
             "h3_storage_link", "i0_storage_link", "i1_storage_link", "i2_storage_link", "i3_storage_link",
             "i4_storage_link", "j0_storage_link", "j1_storage_link", "j2_storage_link", "j3_storage_link",
             "k0_storage_link", "k1_storage_link", "k2_storage_link", "k3_storage_link", "k4_storage_link"};
-        
-       
-        marker_states_.clear(); // Clear previous states
 
+        marker_states_.clear(); // Clear previous states
         // Initialize marker states (default to cube)
         marker_states_ = std::vector<std::vector<bool>>(frames.size(), std::vector<bool>(frames.size(), true));
-
         // Clear existing markers from the server
         marker_server_->clear();
-
         // Create markers for each frame
         for (size_t i = 0; i < frames.size(); ++i)
         {                                        // Cast the index `i` to int when passing it to createInteractiveMarker
             int marker_id = static_cast<int>(i); // Explicit cast to int
             double x = 0.0;                      // Customize marker positioning as needed
-            double y = 0.0;                      
-            double z = 0.0;                      
+            double y = 0.0;
+            double z = 0.0;
             auto int_marker = createInteractiveMarker(marker_id, marker_id, x, y, z, frames[i]);
             marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
         }
-
         marker_server_->applyChanges();
         RCLCPP_INFO(node_->get_logger(), "Created markers on specified frames.");
     }
@@ -157,9 +180,22 @@ namespace rviz_interactive_markers
         // Create a marker (cube or cylinder based on state)
         visualization_msgs::msg::Marker marker;
         marker.type = marker_states_[i][j] ? visualization_msgs::msg::Marker::CUBE : visualization_msgs::msg::Marker::CYLINDER;
-        marker.scale.x = 0.05;
-        marker.scale.y = 0.05;
-        marker.scale.z = 0.05;
+
+        // Get the current length and width values from the input fields
+        bool length_valid = false, width_valid = false;
+        double length = length_input_->text().toDouble(&length_valid);
+        double width = width_input_->text().toDouble(&width_valid);
+
+        if (!length_valid || !width_valid || length <= 0 || width <= 0)
+        {
+            length = 50.0; // Default to 50mm if invalid
+            width = 50.0;  // Default to 50mm if invalid
+        }
+
+        marker.scale.x = length / 1000.0; // Convert from mm to meters
+        marker.scale.y = width / 1000.0;  // Convert from mm to meters
+        marker.scale.z = 0.05;            // Set a fixed height for the cube
+
         marker.color.r = 0.0;
         marker.color.g = 1.0;
         marker.color.b = 0.0;
@@ -280,4 +316,4 @@ namespace rviz_interactive_markers
 
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(rviz_interactive_markers::MTRVizUI, rviz_common::Panel)
-// ff dfg firldkfk kifg 
+// ff dfg  Mon
