@@ -7,13 +7,14 @@
 #include <visualization_msgs/msg/interactive_marker.hpp>
 #include <visualization_msgs/msg/interactive_marker_control.hpp>
 #include <visualization_msgs/msg/marker.hpp>
-#include <QPushButton>
+#include <yaml-cpp/yaml.h>
 #include <rviz_common/panel.hpp>
+#include <QPushButton>
 #include <QLineEdit>
 #include <map>
 #include <string>
 #include <thread>
-
+#include <unordered_map>
 namespace rviz_interactive_markers
 {
 
@@ -27,14 +28,18 @@ namespace rviz_interactive_markers
     ~MTRVizUI() override;                         // Destructor
 
     void onInitialize() override; // Initialize panel with default setup
+                                  // Add methods to save and load the marker state
+    void saveMarkerState(const std::string &filename);
+    void loadMarkerState(const std::string &filename);
   private Q_SLOTS:
     // Slots for button actions
     void broadcastTransform(); // Broadcast a transform using input values
     void toggleMarker();       // Toggle between box and sphere markers
     void resetMarkers();       // Reset all markers in the grid
+    void saveMarkerStateDialog();
+    void loadMarkerStateDialog();
+
   private:
-    // Methods for marker management
-    // In mt_rviz_ui.hpp
     visualization_msgs::msg::InteractiveMarker createInteractiveMarker(int i, int j, double x, double y, double z, const std::string &frame_id); // Create a toggleable interactive marker
     void processFeedback(const visualization_msgs::msg::InteractiveMarkerFeedback::ConstSharedPtr &feedback);                                    // Handle marker feedback
 
@@ -58,9 +63,10 @@ namespace rviz_interactive_markers
     // Marker toggle state
     std::vector<std::vector<bool>> marker_states_; // Grid of marker states
     bool is_box_;                                  // Tracks whether the marker is currently a box or sphere
+
   };
 
 } // namespace rviz_interactive_markers
 
 #endif // RVIZ_INTERACTIVE_MARKERS_MT_RVIZ_UI_HPP
-       // dfdfd  M MOn
+       // dfdfd dfgj  hgsd

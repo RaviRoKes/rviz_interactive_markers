@@ -17,37 +17,32 @@
 #include <QTabWidget>
 #include <QFormLayout>
 #include <QWidget>
-
+#include <QFileDialog>
+#include <QMessageBox>
+#include <fstream>
+#include <yaml-cpp/yaml.h>
 namespace rviz_interactive_markers
 {
     MTRVizUI::MTRVizUI(QWidget *parent)
         : rviz_common::Panel(parent), is_box_(true)
     {
-        // Initialize ROS 2 node
-        node_ = std::make_shared<rclcpp::Node>("mt_rviz_ui");
-
-        // Initialize interactive marker server
+        node_ = std::make_shared<rclcpp::Node>("mt_rviz_ui"); // Initialize ROS 2 node
         marker_server_ = std::make_shared<interactive_markers::InteractiveMarkerServer>(
-            "interactive_marker_server", node_);
-
+            "interactive_marker_server", node_); // Initialize interactive marker server
         // Input fields for frames
         child_frame_input_ = new QLineEdit(this);
         child_frame_input_->setPlaceholderText("Enter Child Frame Name");
-
         parent_frame_input_ = new QLineEdit(this);
         parent_frame_input_->setPlaceholderText("Enter Parent Frame Name");
 
         // Broadcast button
         broadcast_button_ = new QPushButton("Broadcast Transform", this);
         connect(broadcast_button_, &QPushButton::clicked, this, &MTRVizUI::broadcastTransform);
-
         // Input fields for cylinder dimensions
         height_input_ = new QLineEdit(this);
         height_input_->setPlaceholderText("Enter Cylinder Height(mm)");
-
         radius_input_ = new QLineEdit(this);
         radius_input_->setPlaceholderText("Enter Cylinder Radius(mm)");
-
         // Input fields for marker dimensions
         length_input_ = new QLineEdit(this);
         length_input_->setPlaceholderText("Enter Marker Length(mm)");
@@ -57,10 +52,17 @@ namespace rviz_interactive_markers
         // Toggle marker button
         toggle_marker_button_ = new QPushButton("Create/Toggle Marker", this);
         connect(toggle_marker_button_, &QPushButton::clicked, this, &MTRVizUI::toggleMarker);
-
         // Reset button
         reset_button_ = new QPushButton("Reset Markers", this);
         connect(reset_button_, &QPushButton::clicked, this, &MTRVizUI::resetMarkers);
+
+        // Create the Save and Load buttons
+        QPushButton *save_button_ = new QPushButton("Save Marker State", this);
+        QPushButton *load_button_ = new QPushButton("Load Marker State", this);
+
+        // Connect button clicks to the respective functions
+        connect(save_button_, &QPushButton::clicked, this, &MTRVizUI::saveMarkerStateDialog);
+        connect(load_button_, &QPushButton::clicked, this, &MTRVizUI::loadMarkerStateDialog);
 
         // Frames Tab
         QWidget *frames_tab = new QWidget(this);
@@ -95,6 +97,8 @@ namespace rviz_interactive_markers
         QVBoxLayout *main_layout = new QVBoxLayout;
         main_layout->addWidget(tab_widget);
         main_layout->addWidget(reset_button_);
+        main_layout->addWidget(save_button_);
+        main_layout->addWidget(load_button_);
         setLayout(main_layout);
 
         // Set fixed size for the panel
@@ -123,9 +127,7 @@ namespace rviz_interactive_markers
     }
     void MTRVizUI::resetMarkers()
     {
-        // Clear all markers from the interactive marker server
-        marker_server_->clear();
-        // Apply changes (this will effectively remove all markers)
+        marker_server_->clear(); // Clear all markers from the interactive marker server
         marker_server_->applyChanges();
         RCLCPP_INFO(node_->get_logger(), "All markers have been reset.");
     }
@@ -143,19 +145,22 @@ namespace rviz_interactive_markers
             "i4_storage_link", "j0_storage_link", "j1_storage_link", "j2_storage_link", "j3_storage_link",
             "k0_storage_link", "k1_storage_link", "k2_storage_link", "k3_storage_link", "k4_storage_link"};
 
-        marker_states_.clear(); // Clear previous states
-        // Initialize marker states (default to cube)
+        marker_states_.clear();
+        // Initialize marker states (default true= cube)
         marker_states_ = std::vector<std::vector<bool>>(frames.size(), std::vector<bool>(frames.size(), true));
-        // Clear existing markers from the server
         marker_server_->clear();
-        // Create markers for each frame
+        // Create markers for each frame in the list
         for (size_t i = 0; i < frames.size(); ++i)
-        {                                        // Cast the index `i` to int when passing it to createInteractiveMarker
+        {                                        // Cast the index i to int when passing it to createInteractiveMarker
             int marker_id = static_cast<int>(i); // Explicit cast to int
             double x = 0.0;                      // Customize marker positioning as needed
             double y = 0.0;
             double z = 0.0;
+            //
+
             auto int_marker = createInteractiveMarker(marker_id, marker_id, x, y, z, frames[i]);
+            RCLCPP_INFO(node_->get_logger(), "Marker Created: Name = %s, Frame = %s",
+                        int_marker.name.c_str(), int_marker.header.frame_id.c_str());
             marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
         }
         marker_server_->applyChanges();
@@ -176,6 +181,11 @@ namespace rviz_interactive_markers
         int_marker.pose.position.x = x;
         int_marker.pose.position.y = y;
         int_marker.pose.position.z = z;
+
+        // Customize marker orientation
+        tf2::Quaternion orientation;
+        orientation.setRPY(0.0, 0.0, 40.0); // Set the desired roll, pitch, and yaw values
+        tf2::convert(orientation, int_marker.pose.orientation);
 
         // Create a marker (cube or cylinder based on state)
         visualization_msgs::msg::Marker marker;
@@ -240,9 +250,8 @@ namespace rviz_interactive_markers
                 RCLCPP_ERROR(node_->get_logger(), "Grid location out of range: i=%d, j=%d", i, j);
                 return;
             }
-
-            // Toggle the marker type (cube/cylinder)
-            marker_states_[i][j] = !marker_states_[i][j];
+            // Change the marker state to cylinder (no toggling)
+            marker_states_[i][j] = false; // false represents cylinder
 
             // Retrieve user inputs for dimensions
             bool height_valid = false, radius_valid = false;
@@ -261,7 +270,7 @@ namespace rviz_interactive_markers
             {
                 for (auto &marker : control.markers)
                 {
-                    marker.type = marker_states_[i][j] ? visualization_msgs::msg::Marker::CUBE : visualization_msgs::msg::Marker::CYLINDER;
+                    marker.type = visualization_msgs::msg::Marker::CYLINDER;
                     marker.scale.x = radius * 2.0 / 1000.0; // Convert from mm to meters
                     marker.scale.y = radius * 2.0 / 1000.0;
                     marker.scale.z = height / 1000.0;
@@ -282,6 +291,185 @@ namespace rviz_interactive_markers
         catch (const std::exception &e)
         {
             RCLCPP_ERROR(node_->get_logger(), "Exception in processFeedback: %s", e.what());
+        }
+    }
+
+    void MTRVizUI::saveMarkerStateDialog()
+    {
+        // Open a file dialog to select the save file
+        QString filename = QFileDialog::getSaveFileName(
+            this, "Save Marker State", QDir::homePath(), "YAML Files (*.yaml)");
+
+        if (!filename.isEmpty())
+        {
+            saveMarkerState(filename.toStdString());
+            QMessageBox::information(this, "Save Successful", "Marker state saved successfully!");
+        }
+        else
+        {
+            QMessageBox::warning(this, "Save Failed", "No file selected. Marker state was not saved.");
+        }
+    }
+    void MTRVizUI::loadMarkerStateDialog()
+    {
+        // Open a file dialog to select the load file
+        QString filename = QFileDialog::getOpenFileName(
+            this, "Load Marker State", QDir::homePath(), "YAML Files (*.yaml)");
+
+        if (!filename.isEmpty())
+        {
+            loadMarkerState(filename.toStdString());
+            QMessageBox::information(this, "Load Successful", "Marker state loaded successfully!");
+        }
+        else
+        {
+            QMessageBox::warning(this, "Load Failed", "No file selected. Marker state was not loaded.");
+        }
+    }
+    void MTRVizUI::saveMarkerState(const std::string &filename)
+    {
+        YAML::Emitter out;
+        out << YAML::BeginMap; // store key value pairs in a map
+        out << YAML::Key << "markers" << YAML::Value << YAML::BeginSeq;
+        // marker_states_ is a list of list/(table)where each bool represents the state of a marker (cube or cyl)
+        for (size_t i = 0; i < marker_states_.size(); ++i)
+        {
+            for (size_t j = 0; j < marker_states_[i].size(); ++j)
+            {
+                std::cout << "i: " << i << ", j: " << j << std::endl;
+                std::string marker_name = "marker_" + std::to_string(i) + "_" + std::to_string(j);
+                visualization_msgs::msg::InteractiveMarker marker;
+
+                // Retrieve7check the marker by name from the server
+                if (marker_server_->get(marker_name, marker))
+                {
+                    // frame id from marker and store in frame name
+                    std::string frame_name = marker.header.frame_id;
+                    std::string shape = (marker_states_[i][j] ? "cube" : "cylinder"); // Check the marker state
+
+                    // Add marker properties to YAML
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "name" << YAML::Value << marker_name;
+                    out << YAML::Key << "frame" << YAML::Value << frame_name;
+                    out << YAML::Key << "state" << YAML::Value << shape;
+
+                    out << YAML::Key << "position" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "x" << YAML::Value << marker.pose.position.x;
+                    out << YAML::Key << "y" << YAML::Value << marker.pose.position.y;
+                    out << YAML::Key << "z" << YAML::Value << marker.pose.position.z;
+                    out << YAML::EndMap;
+                    out << YAML::Key << "orientation" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "x" << YAML::Value << marker.pose.orientation.x;
+                    out << YAML::Key << "y" << YAML::Value << marker.pose.orientation.y;
+                    out << YAML::Key << "z" << YAML::Value << marker.pose.orientation.z;
+                    out << YAML::Key << "w" << YAML::Value << marker.pose.orientation.w;
+                    out << YAML::EndMap;
+
+                    if (shape == "cube")
+                    {
+                        // Cube dimensions
+                        out << YAML::Key << "dimensions" << YAML::Value << YAML::BeginMap;
+                        out << YAML::Key << "length" << YAML::Value << length_input_->text().toDouble();
+                        out << YAML::Key << "width" << YAML::Value << width_input_->text().toDouble();
+                        out << YAML::EndMap;
+                    }
+                    else if (shape == "cylinder")
+                    {
+                        // Cylinder dimensions
+                        out << YAML::Key << "dimensions" << YAML::Value << YAML::BeginMap;
+                        out << YAML::Key << "radius" << YAML::Value << radius_input_->text().toDouble();
+                        out << YAML::Key << "height" << YAML::Value << height_input_->text().toDouble();
+                        out << YAML::EndMap;
+                    }
+                    out << YAML::EndMap;
+                }
+            }
+        }
+
+        out << YAML::EndSeq;
+        out << YAML::EndMap;
+
+        // Write the YAML content to the file
+        std::ofstream fout(filename);
+        fout << out.c_str();
+    }
+    void MTRVizUI::loadMarkerState(const std::string &filename)
+    {
+        //  you have saved .yaml file in saveMarkerState() function above
+        //   now you should load that file and update the markers accordingly
+        try
+        {
+            YAML::Node node = YAML::LoadFile(filename);
+
+            if (!node["markers"])
+            {
+                RCLCPP_ERROR(node_->get_logger(), "Invalid file format: 'markers' key not found.");
+                return;
+            }
+
+            marker_server_->clear(); // Clear existing markers
+            marker_states_.clear();  // Clear previous states
+
+            const YAML::Node &markers = node["markers"]; // Get the markers node from loaded YAML
+            for (const auto &marker_node : markers)      // Iterate over each marker node
+            {
+                // Extract the marker properties ,name..etc from the marker node
+                std::string marker_name = marker_node["name"].as<std::string>();
+                std::string frame_name = marker_node["frame"].as<std::string>();
+                std::string shape = marker_node["state"].as<std::string>();
+
+                // Extract numerical values from the marker's name
+                int i = std::stoi(marker_name.substr(7, marker_name.find('_') - 7));
+                int j = std::stoi(marker_name.substr(marker_name.find('_') + 1));
+                // Resize the marker states array if necessary
+                if (i >= static_cast<int>(marker_states_.size()))
+                {
+                    marker_states_.resize(i + 1);
+                }
+                if (j >= static_cast<int>(marker_states_[i].size()))
+                {
+                    marker_states_[i].resize(j + 1);
+                }
+
+                marker_states_[i][j] = (shape == "cube");
+
+                double x = marker_node["position"]["x"].as<double>(); // Extract marker position
+                double y = marker_node["position"]["y"].as<double>();
+                double z = marker_node["position"]["z"].as<double>();
+                // Create the interactive marker based on the loaded properties
+                visualization_msgs::msg::InteractiveMarker int_marker = createInteractiveMarker(i, j, x, y, z, frame_name);
+
+                //  Loop through each control and marker associated with the interactive marker
+                for (auto &control : int_marker.controls)
+                {
+                    for (auto &marker : control.markers)
+                    {
+                        if (shape == "cube")
+                        {
+                            marker.type = visualization_msgs::msg::Marker::CUBE;
+                            marker.scale.x = marker_node["dimensions"]["length"].as<double>() / 1000.0;
+                            marker.scale.y = marker_node["dimensions"]["width"].as<double>() / 1000.0;
+                            marker.scale.z = 0.05;
+                        }
+                        else if (shape == "cylinder")
+                        {
+                            marker.type = visualization_msgs::msg::Marker::CYLINDER;
+                            marker.scale.x = marker_node["dimensions"]["radius"].as<double>() * 2.0 / 1000.0;
+                            marker.scale.y = marker_node["dimensions"]["radius"].as<double>() * 2.0 / 1000.0;
+                            marker.scale.z = marker_node["dimensions"]["height"].as<double>() / 1000.0;
+                        }
+                    }
+                }
+
+                marker_server_->insert(int_marker);
+            }
+
+            marker_server_->applyChanges();
+            RCLCPP_INFO(node_->get_logger(), "Marker state loaded from file: %s", filename.c_str());
+        }
+        catch (const std::exception &e)
+        {
+            RCLCPP_ERROR(node_->get_logger(), "Exception in loadMarkerState: %s", e.what());
         }
     }
 
@@ -316,4 +504,4 @@ namespace rviz_interactive_markers
 
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(rviz_interactive_markers::MTRVizUI, rviz_common::Panel)
-// ff dfg  Mon
+// ff working with   df
