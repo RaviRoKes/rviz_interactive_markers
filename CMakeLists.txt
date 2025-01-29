@@ -33,6 +33,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(interactive_markers REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
+find_package(yaml-cpp REQUIRED)
 
 # Automoc and moc((meta objects complier) file generation
 set(CMAKE_AUTOMOC ON)
@@ -63,6 +64,7 @@ ament_target_dependencies(mt_rviz_ui
   geometry_msgs
   interactive_markers
   visualization_msgs
+  yaml-cpp
 )
 
 # Link Qt5 libraries
