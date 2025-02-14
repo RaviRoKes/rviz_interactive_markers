@@ -7,6 +7,9 @@
 #include <visualization_msgs/msg/interactive_marker.hpp>
 #include <visualization_msgs/msg/interactive_marker_control.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <shape_msgs/msg/solid_primitive.hpp>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -21,6 +24,27 @@
 #include <QMessageBox>
 #include <fstream>
 #include <yaml-cpp/yaml.h>
+#include <QMessageBox>
+
+#include <iomanip> // setprecision
+#include <sstream>
+#include <regex>
+
+// Helper function to format a double to a string with 4 decimal places
+std::string formatDouble(double value)
+{
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(3) << value;
+    return stream.str();
+}
+// Helper function to format a float to a string with 4 decimal places
+std::string formatFloat(float value)
+{
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(1) << value;
+    return stream.str();
+}
+
 namespace rviz_interactive_markers
 {
     MTRVizUI::MTRVizUI(QWidget *parent)
@@ -41,8 +65,8 @@ namespace rviz_interactive_markers
         // Input fields for cylinder dimensions
         height_input_ = new QLineEdit(this);
         height_input_->setPlaceholderText("Enter Cylinder Height(mm)");
-        radius_input_ = new QLineEdit(this);
-        radius_input_->setPlaceholderText("Enter Cylinder Radius(mm)");
+        diameter_input_ = new QLineEdit(this);
+        diameter_input_->setPlaceholderText("Enter Cylinder Diameter(mm)");
         // Input fields for marker dimensions
         length_input_ = new QLineEdit(this);
         length_input_->setPlaceholderText("Enter Marker Length(mm)");
@@ -50,7 +74,7 @@ namespace rviz_interactive_markers
         width_input_->setPlaceholderText("Enter Marker Width(mm)");
 
         // Toggle marker button
-        toggle_marker_button_ = new QPushButton("Create/Toggle Marker", this);
+        toggle_marker_button_ = new QPushButton("Create Marker", this);
         connect(toggle_marker_button_, &QPushButton::clicked, this, &MTRVizUI::toggleMarker);
         // Reset button
         reset_button_ = new QPushButton("Reset Markers", this);
@@ -76,7 +100,7 @@ namespace rviz_interactive_markers
         QWidget *cylinder_tab = new QWidget(this);
         QFormLayout *cylinder_layout = new QFormLayout;
         cylinder_layout->addRow("Height:", height_input_);
-        cylinder_layout->addRow("Radius:", radius_input_);
+        cylinder_layout->addRow("Diameter:", diameter_input_);
         cylinder_tab->setLayout(cylinder_layout);
 
         // Additional tab example (optional, e.g., Marker Controls)
@@ -127,45 +151,98 @@ namespace rviz_interactive_markers
     }
     void MTRVizUI::resetMarkers()
     {
-        marker_server_->clear(); // Clear all markers from the interactive marker server
-        marker_server_->applyChanges();
-        RCLCPP_INFO(node_->get_logger(), "All markers have been reset.");
+        // Show a confirmation dialog
+        QMessageBox::StandardButton reply = QMessageBox::question(
+            nullptr,
+            "Reset Markers",
+            "Are you sure you want to reset all markers? This action cannot be undone.",
+            QMessageBox::Yes | QMessageBox::No);
+        if (reply == QMessageBox::Yes)
+        {
+            marker_server_->clear(); // Clear all markers from the interactive marker server
+            marker_server_->applyChanges();
+            RCLCPP_INFO(node_->get_logger(), "All markers have been reset.");
+        }
+        else
+        {
+            RCLCPP_INFO(node_->get_logger(), "Marker reset canceled by the user.");
+        }
     }
     void MTRVizUI::toggleMarker()
     {
-        const std::vector<std::string> frames = {
-            "a0_storage_link", "a1_storage_link", "a2_storage_link", "a3_storage_link", "a4_storage_link",
-            "b0_storage_link", "b1_storage_link", "b2_storage_link", "b3_storage_link", "c0_storage_link",
-            "c1_storage_link", "c2_storage_link", "c3_storage_link", "c4_storage_link", "d0_storage_link",
-            "d1_storage_link", "d2_storage_link", "d3_storage_link", "e0_storage_link", "e1_storage_link",
-            "e2_storage_link", "e3_storage_link", "e4_storage_link", "f0_storage_link", "f1_storage_link",
-            "f2_storage_link", "f3_storage_link", "g0_storage_link", "g1_storage_link", "g2_storage_link",
-            "g3_storage_link", "g4_storage_link", "h0_storage_link", "h1_storage_link", "h2_storage_link",
-            "h3_storage_link", "i0_storage_link", "i1_storage_link", "i2_storage_link", "i3_storage_link",
-            "i4_storage_link", "j0_storage_link", "j1_storage_link", "j2_storage_link", "j3_storage_link",
-            "k0_storage_link", "k1_storage_link", "k2_storage_link", "k3_storage_link", "k4_storage_link"};
+        // Initialize the TF buffer and listener
+        tf2_ros::Buffer tf_buffer(node_->get_clock());
+        tf2_ros::TransformListener tf_listener(tf_buffer);
+        rclcpp::sleep_for(std::chrono::milliseconds(100)); // small delay to allow TF data to be populated
+        std::vector<std::string> all_frames;               // Variable to store all frames
+
+        try
+        {
+            std::string frames_yaml = tf_buffer.allFramesAsYAML(); // Get all frames from tf tree as a YAML string
+            std::stringstream ss(frames_yaml);
+            std::string line;
+            RCLCPP_INFO(node_->get_logger(), "All Frames:\n%s", frames_yaml.c_str());
+            // Parse each line to extract frame IDs
+            while (std::getline(ss, line))
+            {
+                // Each frame is listed as "<frame>: { ... }"
+                size_t colon_pos = line.find(':');
+                if (colon_pos != std::string::npos)
+                {
+                    all_frames.push_back(line.substr(0, colon_pos));
+                }
+            }
+        }
+        catch (const tf2::TransformException &ex)
+        {
+            RCLCPP_ERROR(node_->get_logger(), "Failed to get frames from TF: %s", ex.what());
+            return;
+        }
+
+        // Filter frames using regex
+        std::regex frame_regex(R"(b_mt_store_[0-9]_[a-z][0-9])");
+
+        std::vector<std::string> filtered_frames;
+        for (const auto &frame : all_frames)
+        {
+            RCLCPP_INFO(node_->get_logger(), "- %s", frame.c_str()); // Log each input frame
+            if (std::regex_match(frame, frame_regex))
+            {
+                filtered_frames.push_back(frame);
+            }
+        }
+        // Log all frame names
+        RCLCPP_INFO(node_->get_logger(), "Filtered frames:");
+        for (const auto &frame : filtered_frames)
+        {
+            RCLCPP_INFO(node_->get_logger(), "- %s", frame.c_str());
+        }
 
         marker_states_.clear();
-        // Initialize marker states (default true= cube)
-        marker_states_ = std::vector<std::vector<bool>>(frames.size(), std::vector<bool>(frames.size(), true));
+
+        // initial marker state to 'true' for CUBE
+        marker_states_ = std::vector<std::vector<bool>>(filtered_frames.size(), std::vector<bool>(filtered_frames.size(), true));
         marker_server_->clear();
-        // Create markers for each frame in the list
-        for (size_t i = 0; i < frames.size(); ++i)
-        {                                        // Cast the index i to int when passing it to createInteractiveMarker
-            int marker_id = static_cast<int>(i); // Explicit cast to int
-            double x = 0.0;                      // Customize marker positioning as needed
+
+        // Created interactive markers for each filtered frame
+        for (size_t i = 0; i < filtered_frames.size(); ++i)
+        {
+            int marker_id = static_cast<int>(i);
+            double x = 0.0;
             double y = 0.0;
             double z = 0.0;
-            //
 
-            auto int_marker = createInteractiveMarker(marker_id, marker_id, x, y, z, frames[i]);
+            // Create marker for the filtered frame
+            auto int_marker = createInteractiveMarker(marker_id, marker_id, x, y, z, filtered_frames[i]);
             RCLCPP_INFO(node_->get_logger(), "Marker Created: Name = %s, Frame = %s",
                         int_marker.name.c_str(), int_marker.header.frame_id.c_str());
+
             marker_server_->insert(int_marker, std::bind(&MTRVizUI::processFeedback, this, std::placeholders::_1));
         }
         marker_server_->applyChanges();
-        RCLCPP_INFO(node_->get_logger(), "Created markers on specified frames.");
+        RCLCPP_INFO(node_->get_logger(), "Created markers on filtered frames.");
     }
+
     visualization_msgs::msg::InteractiveMarker MTRVizUI::createInteractiveMarker(int i, int j, double x, double y, double z, const std::string &frame_id)
     {
         visualization_msgs::msg::InteractiveMarker int_marker;
@@ -184,28 +261,27 @@ namespace rviz_interactive_markers
 
         // Customize marker orientation
         tf2::Quaternion orientation;
-        orientation.setRPY(0.0, 0.0, 40.0); // Set the desired roll, pitch, and yaw values
+        orientation.setRPY(0.0, 0.0, 0.78);
         tf2::convert(orientation, int_marker.pose.orientation);
 
         // Create a marker (cube or cylinder based on state)
         visualization_msgs::msg::Marker marker;
         marker.type = marker_states_[i][j] ? visualization_msgs::msg::Marker::CUBE : visualization_msgs::msg::Marker::CYLINDER;
 
-        // Get the current length and width values from the input fields
+        // Get length and width from the input fields
         bool length_valid = false, width_valid = false;
         double length = length_input_->text().toDouble(&length_valid);
         double width = width_input_->text().toDouble(&width_valid);
 
         if (!length_valid || !width_valid || length <= 0 || width <= 0)
         {
-            length = 50.0; // Default to 50mm if invalid
-            width = 50.0;  // Default to 50mm if invalid
+            length = 50.0;
+            width = 50.0; // Default width
         }
 
         marker.scale.x = length / 1000.0; // Convert from mm to meters
-        marker.scale.y = width / 1000.0;  // Convert from mm to meters
-        marker.scale.z = 0.05;            // Set a fixed height for the cube
-
+        marker.scale.y = width / 1000.0;
+        marker.scale.z = 0.05; // Set a fixed height
         marker.color.r = 0.0;
         marker.color.g = 1.0;
         marker.color.b = 0.0;
@@ -230,6 +306,12 @@ namespace rviz_interactive_markers
     {
         try
         {
+            // Process only BUTTON_CLICK events
+            if (feedback->event_type != visualization_msgs::msg::InteractiveMarkerFeedback::BUTTON_CLICK)
+            {
+                return;
+            }
+
             // Identify the clicked marker by its name
             std::string marker_name = feedback->marker_name;
             RCLCPP_INFO(node_->get_logger(), "Marker clicked: %s, Frame: %s", marker_name.c_str(), feedback->header.frame_id.c_str());
@@ -250,43 +332,114 @@ namespace rviz_interactive_markers
                 RCLCPP_ERROR(node_->get_logger(), "Grid location out of range: i=%d, j=%d", i, j);
                 return;
             }
-            // Change the marker state to cylinder (no toggling)
-            marker_states_[i][j] = false; // false represents cylinder
 
-            // Retrieve user inputs for dimensions
-            bool height_valid = false, radius_valid = false;
-            double height = height_input_->text().toDouble(&height_valid);
-            double radius = radius_input_->text().toDouble(&radius_valid);
+            // toggling between cube and cylinder...
+            double original_x = 0.0; // Initial position of the cube (0,0,0)
+            double original_y = 0.0;
+            double original_z = 0.0;
 
-            if (!height_valid || !radius_valid || height <= 0 || radius <= 0)
+            if (marker_states_[i][j]) // true represents cube
             {
-                RCLCPP_ERROR(node_->get_logger(), "Invalid dimensions provided: height=%.2f, radius=%.2f", height, radius);
-                return;
-            }
-            // Update the marker dimensions and type
-            visualization_msgs::msg::InteractiveMarker int_marker = createInteractiveMarker(i, j, 0.0, 0.0, 0.0, feedback->header.frame_id);
+                marker_states_[i][j] = false;
 
-            for (auto &control : int_marker.controls)
-            {
-                for (auto &marker : control.markers)
+                // Retrieve user inputs (height and diameter)
+                bool height_valid = false, diameter_valid = false;
+                double height = height_input_->text().toDouble(&height_valid);
+                double diameter = diameter_input_->text().toDouble(&diameter_valid);
+
+                if (!height_valid || !diameter_valid || height <= 0 || diameter <= 0)
                 {
-                    marker.type = visualization_msgs::msg::Marker::CYLINDER;
-                    marker.scale.x = radius * 2.0 / 1000.0; // Convert from mm to meters
-                    marker.scale.y = radius * 2.0 / 1000.0;
-                    marker.scale.z = height / 1000.0;
-                    marker.color.r = 1.0; // Highlight the updated marker
-                    marker.color.g = 0.0;
-                    marker.color.b = 0.0;
-                    marker.color.a = 1.0;
+                    QMessageBox::warning(nullptr, "Invalid Input", "Please enter valid height and diameter values greater than 0.");
+                    RCLCPP_ERROR(node_->get_logger(), "Invalid dimensions provided: height=%.2f, diameter=%.2f", height, diameter);
+                    return;
                 }
+
+                // shifting of cylinder
+                const double L = 62.5; // mm
+                double radius = diameter / 2.0;
+                double shift = std::sqrt(2 * std::pow(L - radius, 2)) / 1000.0; // mm to meters
+
+                // Update the new position
+                double new_x = feedback->pose.position.x; // Move along the x-axis
+                double new_y = feedback->pose.position.y - shift;
+                // Create the interactive marker for the cylinder
+                visualization_msgs::msg::InteractiveMarker int_marker = createInteractiveMarker(i, j, new_x, new_y, original_z, feedback->header.frame_id);
+
+                for (auto &control : int_marker.controls)
+                {
+                    for (auto &marker : control.markers)
+                    {
+                        marker.type = visualization_msgs::msg::Marker::CYLINDER;
+                        marker.scale.x = diameter / 1000.0; // mm to meters
+                        marker.scale.y = diameter / 1000.0;
+                        marker.scale.z = height / 1000.0;
+                        marker.color.r = 1.0; // red
+                        marker.color.g = 0.0;
+                        marker.color.b = 0.0;
+                        marker.color.a = 1.0;
+                    }
+                }
+
+                // Update the marker in the server and apply changes
+                marker_server_->insert(int_marker);
+                marker_server_->applyChanges();
+
+                RCLCPP_INFO(node_->get_logger(), "Marker updated to Cylinder: i=%d, j=%d, new_x=%.2f, new_y=%.2f, diameter=%.2fmm", i, j, new_x, new_y, diameter);
             }
+            else // If cylinder, change to cube
+            {
 
-            // Update the marker in the server and apply changes
-            marker_server_->insert(int_marker);
-            marker_server_->applyChanges();
+                marker_states_[i][j] = true; // true represents cube
 
-            RCLCPP_INFO(node_->get_logger(), "Marker updated: i=%d, j=%d, type=%s, height=%.2fmm, radius=%.2fmm",
-                        i, j, marker_states_[i][j] ? "CUBE" : "CYLINDER", height, radius);
+                // Create the interactive marker for the cube, restoring its original position at (0, 0, 0)
+                visualization_msgs::msg::InteractiveMarker int_marker = createInteractiveMarker(i, j, original_x, original_y, original_z, feedback->header.frame_id);
+
+                for (auto &control : int_marker.controls)
+                {
+                    for (auto &marker : control.markers)
+                    {
+                        // marker.type = visualization_msgs::msg::Marker::CUBE;
+                        // marker.scale.x = 0.1; // Default cube size (can adjust as needed)
+                        // marker.scale.y = 0.1;
+                        // marker.scale.z = 0.05;
+                        // marker.color.r = 0.0; // blue
+                        // marker.color.g = 0.0;
+                        // marker.color.b = 1.0;
+                        // marker.color.a = 1.0;
+                        // Set marker position
+
+                        // orientation
+                        tf2::Quaternion orientation;
+                        orientation.setRPY(0.0, 0.0, 0.78);
+                        tf2::convert(orientation, int_marker.pose.orientation);
+
+                        // Get length and width from the input fields
+                        bool length_valid = false, width_valid = false;
+                        double length = length_input_->text().toDouble(&length_valid);
+                        double width = width_input_->text().toDouble(&width_valid);
+
+                        if (!length_valid || !width_valid || length <= 0 || width <= 0)
+                        {
+                            length = 50.0;
+                            width = 50.0; // Default width
+                        }
+
+                        marker.scale.x = length / 1000.0; // Convert from mm to meters
+                        marker.scale.y = width / 1000.0;
+                        marker.scale.z = 0.05; // Set a fixed height
+                        marker.color.r = 0.0;
+                        marker.color.g = 0.0;
+                        marker.color.b = 1.0;
+                        marker.color.a = 1.0;
+                    }
+                }
+
+                // Update the marker in the server and apply changes
+                marker_server_->insert(int_marker);
+                marker_server_->applyChanges();
+
+                RCLCPP_INFO(node_->get_logger(), "Marker Cube: i=%d, j=%d, original_x=%.2f, original_y=%.2f", i, j, original_x, original_y);
+            }
         }
         catch (const std::exception &e)
         {
@@ -326,142 +479,389 @@ namespace rviz_interactive_markers
             QMessageBox::warning(this, "Load Failed", "No file selected. Marker state was not loaded.");
         }
     }
+
     void MTRVizUI::saveMarkerState(const std::string &filename)
     {
         YAML::Emitter out;
-        out << YAML::BeginMap; // store key value pairs in a map
-        out << YAML::Key << "markers" << YAML::Value << YAML::BeginSeq;
-        // marker_states_ is a list of list/(table)where each bool represents the state of a marker (cube or cyl)
+        out << YAML::BeginMap;
+
+        // Add the SolidPrimitive Msg comments
+        out << YAML::Comment("SolidPrimitive Msg") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("# Defines box, sphere, cylinder, cone and prism.");
+        out << YAML::Newline;
+        out << YAML::Comment("# All shapes are defined to have their bounding boxes centered around 0,0,0.");
+        out << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("uint8 BOX=1") << YAML::Newline;
+        out << YAML::Comment("uint8 SPHERE=2") << YAML::Newline;
+        out << YAML::Comment("uint8 CYLINDER=3") << YAML::Newline;
+        out << YAML::Comment("uint8 CONE=4") << YAML::Newline;
+        out << YAML::Comment("uint8 PRISM=5") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("# The type of the shape") << YAML::Newline;
+        out << YAML::Comment("uint8 type") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("# The dimensions of the shape") << YAML::Newline;
+        out << YAML::Comment("float64[<=3] dimensions  # At no point will dimensions have a length > 3.");
+        out << YAML::Newline;
+        out << YAML::Newline;
+        out << YAML::Comment("# The meaning of the shape dimensions: each constant defines the index in the 'dimensions' array.");
+        out << YAML::Newline;
+        out << YAML::Newline;
+        out << YAML::Comment("# For type BOX, the X, Y, and Z dimensions are the length of the corresponding sides of the box.");
+        out << YAML::Newline;
+        out << YAML::Comment("uint8 BOX_X=0") << YAML::Newline;
+        out << YAML::Comment("uint8 BOX_Y=1") << YAML::Newline;
+        out << YAML::Comment("uint8 BOX_Z=2") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("# For the SPHERE type, only one component is used, and it gives the radius of the sphere.");
+        out << YAML::Newline;
+        out << YAML::Comment("uint8 SPHERE_RADIUS=0") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("# For the CYLINDER and CONE types, the center line is oriented along the Z axis.");
+        out << YAML::Newline;
+        out << YAML::Comment("# Therefore the CYLINDER_HEIGHT (CONE_HEIGHT) component of dimensions gives the");
+        out << YAML::Newline;
+        out << YAML::Comment("# height of the cylinder (cone).");
+        out << YAML::Newline;
+        out << YAML::Comment("# The CYLINDER_RADIUS (CONE_RADIUS) component of dimensions gives the radius of");
+        out << YAML::Newline;
+        out << YAML::Comment("# the base of the cylinder (cone).");
+        out << YAML::Newline;
+        out << YAML::Comment("# Cone and cylinder primitives are defined to be circular. The tip of the cone");
+        out << YAML::Newline;
+        out << YAML::Comment("# is pointing up, along +Z axis.") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("uint8 CYLINDER_HEIGHT=0") << YAML::Newline;
+        out << YAML::Comment("uint8 CYLINDER_RADIUS=1") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("uint8 CONE_HEIGHT=0") << YAML::Newline;
+        out << YAML::Comment("uint8 CONE_RADIUS=1") << YAML::Newline << YAML::Newline;
+        out << YAML::Comment("# For the type PRISM, the center line is oriented along Z axis.");
+        out << YAML::Newline;
+        out << YAML::Comment("# The PRISM_HEIGHT component of dimensions gives the");
+        out << YAML::Newline;
+        out << YAML::Comment("# height of the prism.") << YAML::Newline;
+        out << YAML::Comment("# The polygon defines the Z axis centered base of the prism.");
+        out << YAML::Newline;
+        out << YAML::Comment("# The prism is constructed by extruding the base in +Z and -Z");
+        out << YAML::Newline;
+        out << YAML::Comment("# directions by half of the PRISM_HEIGHT");
+        out << YAML::Newline;
+        out << YAML::Comment("# Only x and y fields of the points are used in the polygon.");
+        out << YAML::Newline;
+        out << YAML::Comment("# Points of the polygon are ordered counter-clockwise.");
+        out << YAML::Newline;
+        out << YAML::Newline;
+        out << YAML::Comment("uint8 PRISM_HEIGHT=0") << YAML::Newline;
+        out << YAML::Comment("geometry_msgs/Polygon polygon") << YAML::Newline << YAML::Newline << YAML::Newline;
+
+        // Add workspace_manager and object_properties
+        out << YAML::Key << "workspace_manager";
+        out << YAML::Value << YAML::BeginMap;
+
+        out << YAML::Key << "object_properties";
+        out << YAML::Value << YAML::BeginMap;
+
+        // Add core_properties
+        out << YAML::Key << "core_properties";
+        out << YAML::Value << YAML::Anchor("core") << YAML::BeginMap;
+        out << YAML::Key << "id" << YAML::Value << 0;
+        out << YAML::Key << "parent"
+            << YAML::Value << 0
+            << YAML::Comment("0 always refers to the workspace, Parent is the id of the parent_object");
+
+        out << YAML::Key << "pos"
+            << YAML::Value << YAML::Flow
+            << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0)
+            << YAML::EndSeq
+            << YAML::Comment("Defined in the parents base position and rotation");
+        out << YAML::Key << "rotation"
+            << YAML::Value << YAML::Flow
+            << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0)
+            << YAML::EndSeq
+            << YAML::Comment("Defined in the parents base position and rotation, Defined in RPY");
+
+        out << YAML::Key << "frame" << YAML::Value << "" << YAML::Comment("If left empty, will take the workspace_frame");
+        out << YAML::EndMap; // Close core_properties
+
+        // Add collision_properties
+        out << YAML::Key << "collision_properties";
+        out << YAML::Value << YAML::Anchor("collision") << YAML::BeginMap;
+        out << YAML::Key << "shape";
+        out << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "shape_pose"
+            << YAML::Value << YAML::Flow << YAML::BeginSeq
+            << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0)
+            << YAML::EndSeq << YAML::Comment("Defined in the instance's base position and rotation");
+        out << YAML::Key << "shape_rotation"
+            << YAML::Value << YAML::Flow << YAML::BeginSeq
+            << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0)
+            << YAML::EndSeq << YAML::Comment("Defined in the instance's base position and rotation");
+        out << YAML::Key << "mesh";
+        out << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "package" << YAML::Value << "";
+        out << YAML::Key << "path" << YAML::Value << "";
+        out << YAML::Key << "scale"
+            << YAML::Value << YAML::Flow << YAML::BeginSeq
+            << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0)
+            << YAML::EndSeq << YAML::Comment("Doubles as length, width, height");
+        out << YAML::EndMap; // Close mesh
+        out << YAML::Key << "primitive";
+        out << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "type" << YAML::Value << 0 << YAML::Comment("uint8 value according to shape_msgs/msg/SolidPrimitive. e.g., \"type: 3  # shape_msgs::msg::SolidPrimitive::CYLINDER\"");
+        out << YAML::Key << "dimensions" << YAML::Value << YAML::Flow << YAML::BeginSeq << YAML::EndSeq;
+        out << YAML::EndMap; // Close primitive
+        out << YAML::EndMap; // Close shape
+        out << YAML::EndMap; // Close collision_properties
+        out << YAML::EndMap;
+        // Add object_types
+        out << YAML::Key << "object_types";
+        out << YAML::Value << YAML::BeginMap;
+
+        out << YAML::Key << "workspace";
+        out << YAML::Value << YAML::Anchor("workspace") << YAML::BeginMap;
+        out << YAML::Key << "id" << YAML::Value << 0;
+        out << YAML::Key << "base_frame" << YAML::Value << "";
+        out << YAML::Key << "predicates" << YAML::Value << YAML::Null;
+        out << YAML::EndMap; // Close workspace
+
+        out << YAML::Key << "goal";
+        out << YAML::Value << YAML::Anchor("goal") << YAML::BeginMap;
+        out << YAML::Key << "object_type" << YAML::Value << 0;
+        out << YAML::Key << "<<" << YAML::Value << YAML::Alias("core");
+        out << YAML::Key << "interaction_point" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0) << YAML::EndSeq << YAML::Comment("The point where to place the gripper");
+        out << YAML::Key << "interaction_approach_direction" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0) << YAML::EndSeq << YAML::Comment("The direction from where to approach the object");
+        out << YAML::Key << "approach_distance" << YAML::Value << formatFloat(0.1f);
+        out << YAML::EndMap; // Close goal
+
+        out << YAML::Key << "cluster";
+        out << YAML::Value << YAML::Anchor("storage") << YAML::BeginMap;
+        out << YAML::Key << "object_type" << YAML::Value << 2;
+        out << YAML::Key << "<<" << YAML::Value << YAML::Alias("core");
+        out << YAML::Key << "cluster_type" << YAML::Value << -1 << YAML::Comment("If this only contains specific types, give it another value, otherwise, it can contain anything arbitrary");
+        out << YAML::Key << "cluster_storage" << YAML::Value << YAML::Flow << YAML::BeginSeq << YAML::EndSeq << YAML::Comment("contains the id numbers of each stored instance");
+        out << YAML::EndMap; // Close cluster
+
+        out << YAML::Key << "object_instance";
+        out << YAML::Value << YAML::Anchor("instance") << YAML::BeginMap;
+        out << YAML::Key << "object_type" << YAML::Value << 1;
+        out << YAML::Key << "<<" << YAML::Value << YAML::Alias("core");
+        out << YAML::Key << "id" << YAML::Value << 0;
+        out << YAML::Key << "parent" << YAML::Value << 0;
+        out << YAML::Key << "interaction_point" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0) << YAML::EndSeq;
+        out << YAML::Key << "interaction_approach_direction" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0) << YAML::EndSeq << YAML::Comment("RPY");
+        out << YAML::Key << "approach_distance" << YAML::Value << formatFloat(0.1f);
+        out << YAML::Key << "<<" << YAML::Value << YAML::Alias("collision");
+        out << YAML::EndMap; // Close object_instance
+
+        out << YAML::EndMap; // Close object_types
+        out << YAML::EndMap; // Close workspace_manager
+
+        out << YAML::Key << "workspace_object" << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "<<" << YAML::Value << YAML::Alias("workspace");
+        out << YAML::Key << "base_frame" << YAML::Value << "base_link";
+
+        // Add objects
+        out << YAML::Key << "objects";
+        out << YAML::Value << YAML::BeginMap;
+
+        // out << YAML::Comment("Example of a mesh shape object");
+        // out << YAML::Key << "part_1";
+        // out << YAML::Value << YAML::BeginMap;
+        // out << YAML::Key << "<<" << YAML::Value << YAML::Alias("instance");
+        // out << YAML::Key << "frame" << YAML::Value << "_1positioner_1";
+        // out << YAML::Key << "pos" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatDouble(0.001) << YAML::EndSeq;
+        // out << YAML::Key << "rotation" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0) << YAML::EndSeq;
+        // out << YAML::Key << "approach_distance" << YAML::Value << 0.2;
+        // out << YAML::Key << "shape" << YAML::Value << YAML::BeginMap;
+        // out << YAML::Key << "shape_pose" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << 0.0 << YAML::EndSeq;
+        // out << YAML::Key << "shape_rotation" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(0.0) << formatFloat(0.0) << YAML::EndSeq;
+        // out << YAML::Key << "mesh" << YAML::Value << YAML::BeginMap;
+        // out << YAML::Key << "package" << YAML::Value << "template_mt_cell_configuration";
+        // out << YAML::Key << "path" << YAML::Value << "meshes/plates/visual/NSE_138_2.stl";
+        // out << YAML::Key << "scale" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatDouble(0.001) << formatDouble(0.001) << formatDouble(0.001) << YAML::EndSeq;
+        // out << YAML::EndMap; // Close mesh
+        // out << YAML::EndMap; // Close shape
+        // out << YAML::Key << "id" << YAML::Value << 1;
+        // out << YAML::Key << "interaction_point" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(-0.06f) << formatFloat(0.0) << formatFloat(0.12f) << YAML::EndSeq;
+        // out << YAML::Key << "interaction_approach_direction" << YAML::Value << YAML::Flow << YAML::BeginSeq << formatFloat(0.0) << formatFloat(-0.5f) << formatFloat(1.0f) << YAML::EndSeq;
+        // out << YAML::EndMap; // Close part_1
+
         for (size_t i = 0; i < marker_states_.size(); ++i)
         {
             for (size_t j = 0; j < marker_states_[i].size(); ++j)
             {
-                std::cout << "i: " << i << ", j: " << j << std::endl;
+
                 std::string marker_name = "marker_" + std::to_string(i) + "_" + std::to_string(j);
                 visualization_msgs::msg::InteractiveMarker marker;
 
-                // Retrieve7check the marker by name from the server
                 if (marker_server_->get(marker_name, marker))
                 {
-                    // frame id from marker and store in frame name
                     std::string frame_name = marker.header.frame_id;
-                    std::string shape = (marker_states_[i][j] ? "cube" : "cylinder"); // Check the marker state
+                    uint8_t shape_type = marker_states_[i][j] ? shape_msgs::msg::SolidPrimitive::BOX : shape_msgs::msg::SolidPrimitive::CYLINDER;
 
-                    // Add marker properties to YAML
-                    out << YAML::BeginMap;
-                    out << YAML::Key << "name" << YAML::Value << marker_name;
-                    out << YAML::Key << "frame" << YAML::Value << frame_name;
-                    out << YAML::Key << "state" << YAML::Value << shape;
+                    // Add named part (e.g., part_1, part_2, etc.)
+                    std::string part_name = "part_" + std::to_string(i + 1); // Adjust naming as needed
+                    out << YAML::Key << part_name;
+                    out << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "<<" << YAML::Value << YAML::Alias("instance");
 
-                    out << YAML::Key << "position" << YAML::Value << YAML::BeginMap;
-                    out << YAML::Key << "x" << YAML::Value << marker.pose.position.x;
-                    out << YAML::Key << "y" << YAML::Value << marker.pose.position.y;
-                    out << YAML::Key << "z" << YAML::Value << marker.pose.position.z;
-                    out << YAML::EndMap;
-                    out << YAML::Key << "orientation" << YAML::Value << YAML::BeginMap;
-                    out << YAML::Key << "x" << YAML::Value << marker.pose.orientation.x;
-                    out << YAML::Key << "y" << YAML::Value << marker.pose.orientation.y;
-                    out << YAML::Key << "z" << YAML::Value << marker.pose.orientation.z;
-                    out << YAML::Key << "w" << YAML::Value << marker.pose.orientation.w;
-                    out << YAML::EndMap;
+                    // Add frame, position, rotation, etc.
+                    out << YAML::Key << "frame" << YAML::Value << YAML::DoubleQuoted << frame_name;
+                    out << YAML::Key << "pos" << YAML::Value << YAML::Flow << YAML::BeginSeq << 0.0 << 0.0 << 0.001 << YAML::EndSeq;
+                    out << YAML::Key << "rotation" << YAML::Value << YAML::Flow << YAML::BeginSeq << 0.0 << 0.0 << 0.0 << YAML::EndSeq;
+                    out << YAML::Key << "approach_distance" << YAML::Value << formatFloat(0.2f);
 
-                    if (shape == "cube")
+                    // Add shape info
+                    out << YAML::Key << "shape" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "shape_pose" << YAML::Value << YAML::Flow << YAML::BeginSeq
+                        << formatDouble(marker.pose.position.x)
+                        << formatDouble(marker.pose.position.y)
+                        << formatDouble(marker.pose.position.z)
+                        << YAML::EndSeq;
+
+                    tf2::Quaternion q(marker.pose.orientation.x, marker.pose.orientation.y,
+                                      marker.pose.orientation.z, marker.pose.orientation.w);
+                    double roll, pitch, yaw;
+                    tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+
+                    out << YAML::Key << "shape_rotation" << YAML::Value << YAML::Flow
+                        << YAML::BeginSeq
+                        << formatDouble(roll)
+                        << formatDouble(pitch)
+                        << formatDouble(yaw)
+                        << YAML::EndSeq;
+
+                    out << YAML::Key << "primitive" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "type" << YAML::Value << static_cast<int>(shape_type);
+                    if (shape_type == shape_msgs::msg::SolidPrimitive::BOX)
                     {
-                        // Cube dimensions
-                        out << YAML::Key << "dimensions" << YAML::Value << YAML::BeginMap;
-                        out << YAML::Key << "length" << YAML::Value << length_input_->text().toDouble();
-                        out << YAML::Key << "width" << YAML::Value << width_input_->text().toDouble();
-                        out << YAML::EndMap;
+                        out << YAML::Comment(" shape_msgs::msg::SolidPrimitive::BOX");
                     }
-                    else if (shape == "cylinder")
+                    else if (shape_type == shape_msgs::msg::SolidPrimitive::CYLINDER)
                     {
-                        // Cylinder dimensions
-                        out << YAML::Key << "dimensions" << YAML::Value << YAML::BeginMap;
-                        out << YAML::Key << "radius" << YAML::Value << radius_input_->text().toDouble();
-                        out << YAML::Key << "height" << YAML::Value << height_input_->text().toDouble();
-                        out << YAML::EndMap;
+                        out << YAML::Comment(" shape_msgs::msg::SolidPrimitive::CYLINDER");
                     }
-                    out << YAML::EndMap;
+                    out << YAML::Key << "dimensions" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+                    if (shape_type == shape_msgs::msg::SolidPrimitive::BOX)
+                    {
+                        out << formatDouble(length_input_->text().toDouble())
+                            << formatDouble(width_input_->text().toDouble())
+                            << formatDouble(0.05); // Fixed height for cube
+                    }
+                    else if (shape_type == shape_msgs::msg::SolidPrimitive::CYLINDER)
+                    {
+                        out << formatDouble(height_input_->text().toDouble())
+                            << formatDouble(diameter_input_->text().toDouble());
+                    }
+                    out << YAML::EndSeq;
+                    out << YAML::EndMap; // Close primitive
+                    out << YAML::EndMap; // Close shape
+
+                    // Add marker ID
+                    //  out << YAML::Key << "id" << YAML::Value << static_cast<int>(i);
+                    out << YAML::Key << "id" << YAML::Value << marker_name;
+                    // Add interaction point
+                    out << YAML::Key << "interaction_point" << YAML::Value << YAML::Flow << YAML::BeginSeq
+                        << formatDouble(-0.05) << formatDouble(0.0) << formatDouble(0.15)
+                        << YAML::EndSeq;
+                    // Add interaction approach direction
+                    out << YAML::Key << "interaction_approach_direction" << YAML::Value << YAML::Flow << YAML::BeginSeq
+                        << formatDouble(0.0) << formatDouble(-0.5) << formatDouble(1.0)
+                        << YAML::EndSeq;
+                    out << YAML::EndMap; // Close part entry
                 }
             }
         }
 
-        out << YAML::EndSeq;
-        out << YAML::EndMap;
+        out << YAML::EndMap; // Close objects
+        out << YAML::EndMap; // Close workspace_object
+        out << YAML::EndMap; // Close root
 
-        // Write the YAML content to the file
         std::ofstream fout(filename);
         fout << out.c_str();
     }
+
     void MTRVizUI::loadMarkerState(const std::string &filename)
     {
-        //  you have saved .yaml file in saveMarkerState() function above
-        //   now you should load that file and update the markers accordingly
         try
         {
             YAML::Node node = YAML::LoadFile(filename);
 
-            if (!node["markers"])
+            if (!node["workspace_object"] || !node["workspace_object"]["objects"])
             {
-                RCLCPP_ERROR(node_->get_logger(), "Invalid file format: 'markers' key not found.");
+                RCLCPP_ERROR(node_->get_logger(), "Invalid file format: 'objects' key not found.");
                 return;
             }
 
-            marker_server_->clear(); // Clear existing markers
-            marker_states_.clear();  // Clear previous states
+            marker_server_->clear();
+            marker_states_.clear();
 
-            const YAML::Node &markers = node["markers"]; // Get the markers node from loaded YAML
-            for (const auto &marker_node : markers)      // Iterate over each marker node
+            const YAML::Node &objects = node["workspace_object"]["objects"];
+            size_t i = 0;
+
+            for (const auto &object : objects)
             {
-                // Extract the marker properties ,name..etc from the marker node
-                std::string marker_name = marker_node["name"].as<std::string>();
-                std::string frame_name = marker_node["frame"].as<std::string>();
-                std::string shape = marker_node["state"].as<std::string>();
+                std::string frame_name = object.second["frame"].as<std::string>(); // Extract frame name
 
-                // Extract numerical values from the marker's name
-                int i = std::stoi(marker_name.substr(7, marker_name.find('_') - 7));
-                int j = std::stoi(marker_name.substr(marker_name.find('_') + 1));
-                // Resize the marker states array if necessary
-                if (i >= static_cast<int>(marker_states_.size()))
-                {
+                // Extract position
+                const YAML::Node &position = object.second["shape"]["shape_pose"];
+                double x = position[0].as<double>();
+                double y = position[1].as<double>();
+                double z = position[2].as<double>();
+
+                // Extract orientation
+                const YAML::Node &orientation = object.second["shape"]["shape_rotation"];
+                double roll = orientation[0].as<double>();
+                double pitch = orientation[1].as<double>();
+                double yaw = orientation[2].as<double>();
+
+                uint8_t shape_type = object.second["shape"]["primitive"]["type"].as<uint8_t>(); // Extract shape info
+
+                //  list of boxes (marker_states_) and its type box/cy
+                // checks if the list marker_states_ has enough space to store information for the current marker (i).
+                if (i >= marker_states_.size())
                     marker_states_.resize(i + 1);
-                }
-                if (j >= static_cast<int>(marker_states_[i].size()))
-                {
-                    marker_states_[i].resize(j + 1);
-                }
 
-                marker_states_[i][j] = (shape == "cube");
+                marker_states_[i].resize(1);
+                // store shape type
+                marker_states_[i][0] = (shape_type == shape_msgs::msg::SolidPrimitive::BOX);
 
-                double x = marker_node["position"]["x"].as<double>(); // Extract marker position
-                double y = marker_node["position"]["y"].as<double>();
-                double z = marker_node["position"]["z"].as<double>();
-                // Create the interactive marker based on the loaded properties
-                visualization_msgs::msg::InteractiveMarker int_marker = createInteractiveMarker(i, j, x, y, z, frame_name);
+                // Extract dimensions
+                const YAML::Node &dimensions = object.second["shape"]["primitive"]["dimensions"];
+                double dim1 = dimensions[0].as<double>();
+                double dim2 = dimensions[1].as<double>();
 
-                //  Loop through each control and marker associated with the interactive marker
+                // Convert roll, pitch, yaw to quaternion
+                tf2::Quaternion q;
+                q.setRPY(roll, pitch, yaw);
+
+                // Create InteractiveMarker
+                visualization_msgs::msg::InteractiveMarker int_marker = createInteractiveMarker(static_cast<int>(i), 0, x, y, z, frame_name);
+                int_marker.pose.orientation.x = q.x();
+                int_marker.pose.orientation.y = q.y();
+                int_marker.pose.orientation.z = q.z();
+                int_marker.pose.orientation.w = q.w();
+
+                // Set marker shape (cube or cylinder)
                 for (auto &control : int_marker.controls)
                 {
                     for (auto &marker : control.markers)
                     {
-                        if (shape == "cube")
+                        if (shape_type == shape_msgs::msg::SolidPrimitive::BOX)
                         {
                             marker.type = visualization_msgs::msg::Marker::CUBE;
-                            marker.scale.x = marker_node["dimensions"]["length"].as<double>() / 1000.0;
-                            marker.scale.y = marker_node["dimensions"]["width"].as<double>() / 1000.0;
-                            marker.scale.z = 0.05;
+                            marker.scale.x = dim1 / 1000.0;
+                            marker.scale.y = dim2 / 1000.0;
+                            marker.scale.z = 0.05; // Fixed height for cube
                         }
-                        else if (shape == "cylinder")
+                        else if (shape_type == shape_msgs::msg::SolidPrimitive::CYLINDER)
                         {
                             marker.type = visualization_msgs::msg::Marker::CYLINDER;
-                            marker.scale.x = marker_node["dimensions"]["radius"].as<double>() * 2.0 / 1000.0;
-                            marker.scale.y = marker_node["dimensions"]["radius"].as<double>() * 2.0 / 1000.0;
-                            marker.scale.z = marker_node["dimensions"]["height"].as<double>() / 1000.0;
+                            marker.scale.x = dim2 / 1000.0;
+                            marker.scale.y = dim2 / 1000.0;
+                            marker.scale.z = dim1 / 1000.0;
                         }
                     }
                 }
 
+                // Insert into marker server
                 marker_server_->insert(int_marker);
+                i++;
             }
 
             marker_server_->applyChanges();
@@ -481,6 +881,7 @@ namespace rviz_interactive_markers
         // Check if either frame name is empty or contains spaces
         if (parent_frame.empty() || child_frame.empty() || parent_frame.find(" ") != std::string::npos || child_frame.find(" ") != std::string::npos)
         {
+            QMessageBox::warning(this, "Invalid Frame Names", "Parent or Child frame is empty or contains spaces.");
             RCLCPP_ERROR(node_->get_logger(), "Parent or Child frame is empty or contains spaces.");
             return;
         }
@@ -504,4 +905,4 @@ namespace rviz_interactive_markers
 
 #include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(rviz_interactive_markers::MTRVizUI, rviz_common::Panel)
-// ff working with   df
+// working before mesh

@@ -32,6 +32,7 @@
   <build_depend>qtbase5-dev</build_depend>
   <build_depend>Qt5</build_depend>
   <build_depend>rviz_ogre_vendor</build_depend>
+  <build_depend>shape_msg</build_depend>
 
   <!-- Runtime dependencies -->
   <exec_depend>rclcpp</exec_depend>
